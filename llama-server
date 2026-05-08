@@ -42,11 +42,10 @@ if [[ -z "$MODEL_CONFIG" ]]; then
     echo ""
     echo "Available backends: rocm, vulkan"
     echo ""
-    echo "Available model configs in $CONFIG_DIR:"
+    echo "Available model presets in $CONFIG_DIR:"
     if [[ -d "$CONFIG_DIR" ]]; then
-        ls -1 "$CONFIG_DIR"/*.conf 2>/dev/null | while read -r conf; do
-            basename=$(basename "$conf" .conf)
-            size=$(du -h "$conf" | cut -f1)
+        ls -1 "$CONFIG_DIR"/*.ini 2>/dev/null | while read -r ini; do
+            basename=$(basename "$ini" .ini)
             echo "  - $basename"
         done
     else
@@ -57,16 +56,16 @@ fi
 
 shift
 
-CONFIG_FILE="$CONFIG_DIR/${MODEL_CONFIG}.conf"
+CONFIG_FILE="$CONFIG_DIR/${MODEL_CONFIG}.ini"
 
-# Check if config file exists
+# Check if preset file exists
 if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo "Error: Config file not found: $CONFIG_FILE"
+    echo "Error: Preset file not found: $CONFIG_FILE"
     echo ""
-    echo "Available model configs in $CONFIG_DIR:"
+    echo "Available model presets in $CONFIG_DIR:"
     if [[ -d "$CONFIG_DIR" ]]; then
-        ls -1 "$CONFIG_DIR"/*.conf 2>/dev/null | while read -r conf; do
-            basename=$(basename "$conf" .conf)
+        ls -1 "$CONFIG_DIR"/*.ini 2>/dev/null | while read -r ini; do
+            basename=$(basename "$ini" .ini)
             echo "  - $basename"
         done
     else
@@ -86,8 +85,12 @@ if ! distrobox list | grep -q "^.*| $CONTAINER_NAME |"; then
     distrobox enter "$CONTAINER_NAME" -- bash -c 'mkdir -p ~/.local/bin ~/.config/llama-cpp'
     cat "$(dirname "$0")/llama-server-container" | distrobox enter "$CONTAINER_NAME" -- bash -c "cat > ~/.local/bin/$WRAPPER_SCRIPT && chmod +x ~/.local/bin/$WRAPPER_SCRIPT"
     
-    for conf in "$CONFIG_DIR"/*.conf; do
-        cat "$conf" | distrobox enter "$CONTAINER_NAME" -- bash -c "cat > ~/.config/llama-cpp/$(basename "$conf")"
+    for ini in "$CONFIG_DIR"/*.ini; do
+        cat "$ini" | distrobox enter "$CONTAINER_NAME" -- bash -c "cat > ~/.config/llama-cpp/$(basename "$ini")"
+    done
+    for jinja in "$CONFIG_DIR"/*.jinja; do
+        [[ -f "$jinja" ]] || continue
+        cat "$jinja" | distrobox enter "$CONTAINER_NAME" -- bash -c "cat > ~/.config/llama-cpp/$(basename "$jinja")"
     done
     
     echo "Container setup complete!"

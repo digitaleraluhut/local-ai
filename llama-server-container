@@ -1,131 +1,50 @@
 #!/bin/bash
-# Universal llama.cpp server launcher for containers
-# Sources model config and executes llama-server
+# Universal llama.cpp server launcher for distrobox containers.
+# Always runs llama-server in router mode against an INI preset file.
+# Single-model configs are just one-section INIs; multi-model configs
+# (e.g. router.ini) hold multiple sections in one file.
 
 set -e
 
-# Config directory - support environment variable override
-# Default: ~/.config/llama-cpp
-# Override with: LLAMA_CONFIG_DIR environment variable
+# Config directory — supports LLAMA_CONFIG_DIR override.
 CONFIG_DIR="${LLAMA_CONFIG_DIR:=${XDG_CONFIG_HOME:=$HOME/.config}/llama-cpp}"
-MODEL_CONFIG="${1:-default}"
-CONFIG_FILE="$CONFIG_DIR/${MODEL_CONFIG}.conf"
+PRESET_NAME="${1:-}"
 
-# Remove the first argument (model config name)
+if [[ -z "$PRESET_NAME" ]]; then
+    echo "Usage: llama-server-container <preset-name> [extra llama-server args]"
+    echo ""
+    echo "Available presets in $CONFIG_DIR:"
+    ls -1 "$CONFIG_DIR"/*.ini 2>/dev/null | xargs -n1 basename -s .ini || echo "  (none)"
+    exit 1
+fi
 shift
 
-# Check if config file exists
-if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo "Error: Config file not found: $CONFIG_FILE"
-    echo "Available configs:"
-    ls -1 "$CONFIG_DIR"/*.conf 2>/dev/null | xargs -n1 basename -s .conf || echo "No configs found"
+PRESET_FILE="$CONFIG_DIR/${PRESET_NAME}.ini"
+if [[ ! -f "$PRESET_FILE" ]]; then
+    echo "Error: Preset file not found: $PRESET_FILE"
+    echo "Available presets:"
+    ls -1 "$CONFIG_DIR"/*.ini 2>/dev/null | xargs -n1 basename -s .ini || echo "  (none)"
     exit 1
 fi
 
-# Source the config file
-source "$CONFIG_FILE"
-
-# Set ROCm environment variables for Strix Halo unified memory
-# Note: do NOT set HSA_OVERRIDE_GFX_VERSION — kyuz0 images compile natively for gfx1151
+# ROCm env vars for Strix Halo unified memory.
+# Note: do NOT set HSA_OVERRIDE_GFX_VERSION — kyuz0 images compile natively for gfx1151.
 if [[ -d /opt/rocm ]]; then
     export GGML_CUDA_ENABLE_UNIFIED_MEMORY="${GGML_CUDA_ENABLE_UNIFIED_MEMORY:-1}"
     export GPU_MAX_HW_QUEUES="${GPU_MAX_HW_QUEUES:-2}"
     export LLAMA_SET_ROWS="${LLAMA_SET_ROWS:-1}"
 fi
 
-# Verify model path exists
-if [[ ! -f "$MODEL_PATH" ]]; then
-    echo "Error: Model file not found: $MODEL_PATH"
-    exit 1
-fi
-
-# Build the llama.cpp command
 LLAMA_CMD=(
-    "llama-server"
-    "-m" "$MODEL_PATH"
-    "-c" "$CONTEXT_SIZE"
-    "-b" "$BATCH_SIZE"
-    "-ub" "$UBATCH_SIZE"
-    "-t" "$THREADS"
-    "-ngl" "$GPU_LAYERS"
+    llama-server
+    --models-preset "$PRESET_FILE"
+    --no-models-autoload
+    "$@"
 )
 
-# Port (optional; llama-server defaults to 8080 when unset)
-if [[ -n "$PORT" ]]; then
-    LLAMA_CMD+=("--port" "$PORT")
-fi
-
-# Disable mmap if requested (recommended for Strix Halo)
-if [[ "$NO_MMAP" == "1" ]]; then
-    LLAMA_CMD+=("--no-mmap")
-fi
-
-# Enable /v1/embeddings endpoint alongside generation
-if [[ "$EMBEDDINGS" == "1" ]]; then
-    LLAMA_CMD+=("--embeddings")
-fi
-if [[ -n "$POOLING" ]]; then
-    LLAMA_CMD+=("--pooling" "$POOLING")
-fi
-
-# Add flash attention if enabled
-if [[ "$FLASH_ATTN" == "1" ]]; then
-    LLAMA_CMD+=("--flash-attn" "on")
-fi
-
-# Add KV cache quantization if specified
-if [[ -n "$CACHE_TYPE_K" ]]; then
-    LLAMA_CMD+=("--cache-type-k" "$CACHE_TYPE_K")
-fi
-if [[ -n "$CACHE_TYPE_V" ]]; then
-    LLAMA_CMD+=("--cache-type-v" "$CACHE_TYPE_V")
-fi
-
-# Prompt cache reuse
-if [[ -n "$CACHE_REUSE" ]]; then
-    LLAMA_CMD+=("--cache-reuse" "$CACHE_REUSE")
-fi
-
-# Unified KV cache (better for unified memory systems)
-if [[ "$KV_UNIFIED" == "1" ]]; then
-    LLAMA_CMD+=("--kv-unified")
-fi
-
-# Speculative decoding (ngram-based, no draft model needed)
-if [[ -n "$SPEC_TYPE" ]]; then
-    LLAMA_CMD+=("--spec-type" "$SPEC_TYPE")
-fi
-if [[ -n "$SPEC_NGRAM_SIZE_N" ]]; then
-    LLAMA_CMD+=("--spec-ngram-size-n" "$SPEC_NGRAM_SIZE_N")
-fi
-if [[ -n "$DRAFT_MIN" ]]; then
-    LLAMA_CMD+=("--draft-min" "$DRAFT_MIN")
-fi
-if [[ -n "$DRAFT_MAX" ]]; then
-    LLAMA_CMD+=("--draft-max" "$DRAFT_MAX")
-fi
-
-# Add jinja support
-if [[ "$JINJA" == "0" ]]; then
-    LLAMA_CMD+=("--no-jinja")
-elif [[ "$JINJA" == "1" ]]; then
-    LLAMA_CMD+=("--jinja")
-fi
-
-# Add custom chat template if specified
-if [[ -n "$CHAT_TEMPLATE_FILE" && -f "$CHAT_TEMPLATE_FILE" ]]; then
-    LLAMA_CMD+=("--chat-template-file" "$CHAT_TEMPLATE_FILE")
-fi
-
-# Add any additional arguments passed to the script
-LLAMA_CMD+=("$@")
-
-echo "Starting llama.cpp server with: $MODEL_NAME"
-echo "Config: $CONFIG_FILE"
-echo "Model: $MODEL_PATH"
-echo ""
+echo "Starting llama.cpp router with preset: $PRESET_NAME"
+echo "Preset file: $PRESET_FILE"
 echo "Command: ${LLAMA_CMD[*]}"
 echo ""
 
-# Execute llama-server
 exec "${LLAMA_CMD[@]}"

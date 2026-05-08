@@ -53,26 +53,70 @@ Once running, the server is available at:
 
 ## Configuration
 
-Configurations are stored in `./configs/` as simple shell scripts. Each config defines:
+Each preset is an `.ini` file in `./configs/` consumed directly by
+`llama-server --models-preset` (router mode). A preset can hold one or
+several models — the section header is the alias used in the OpenAI
+`model` field.
 
-```bash
-MODEL_NAME="Qwen3-Coder-30B"
-MODEL_PATH="/path/to/model.gguf"
-CONTEXT_SIZE=262144
-BATCH_SIZE=2048
-UBATCH_SIZE=2048
-THREADS=8
-GPU_LAYERS=999
-FLASH_ATTN=1
-JINJA=1
+Single-model preset (`./configs/qwen3-coder-30b.ini`):
+
+```ini
+version = 1
+
+[qwen3-coder-30b]
+model = /path/to/model.gguf
+c = 262144
+b = 2048
+ub = 2048
+t = 8
+ngl = 999
+flash-attn = on
+jinja = true
+load-on-startup = true
 ```
+
+Multi-model preset (`./configs/router.ini`) keeps each section
+separately and llama-server routes by request `model` field:
+
+```ini
+version = 1
+
+[*]                  ; defaults shared by every section in this file
+ngl = 999
+b = 2048
+ub = 2048
+
+[qwen3.6-35b-a3b]
+model = /path/to/qwen.gguf
+c = 262144
+flash-attn = on
+jinja = true
+load-on-startup = true
+
+[nomic-embed-v1.5]
+model = /path/to/nomic.gguf
+c = 2048
+embeddings = true
+pooling = mean
+load-on-startup = true
+```
+
+INI keys are llama-server CLI flag names without the leading dashes
+(`--n-gpu-layers` → `n-gpu-layers` or its short alias `ngl`). For
+boolean flags use `true`/`false`; flags that take a value (e.g.
+`flash-attn`) take that value as-is. Settings under `[*]` apply to
+every section in the file (and to any cached HF models). Two
+preset-only keys: `load-on-startup = true` (eager-load on server start)
+and `stop-timeout = N` (seconds to wait for graceful unload).
+
+The launcher always passes `--no-models-autoload`, so cached HF models
+listed in `/v1/models` won't auto-load on first request — only the
+sections you defined with `load-on-startup = true` come up.
 
 ### Environment Variables
 
-Override the config directory location:
-
 ```bash
-# Use custom config directory
+# Use custom preset directory
 LLAMA_CONFIG_DIR=~/.config/model-configs rocm-llama qwen3-coder-30b --port 8000
 
 # Or set permanently
@@ -81,108 +125,114 @@ export LLAMA_CONFIG_DIR=~/.config/model-configs
 
 ## Script Architecture
 
-The project uses a clean separation of concerns:
-
 ### Host-side (Entry Points)
 
-- **`rocm-llama`** - Simple wrapper → `llama-server rocm`
-- **`vulkan-llama`** - Simple wrapper → `llama-server vulkan`
-- **`llama-server`** - Master orchestrator that:
-  - Creates/manages containers if needed
-  - Copies configs and wrapper scripts into containers
-  - Handles backend selection and configuration loading
+- **`rocm-llama`** — wrapper → `llama-server rocm`
+- **`vulkan-llama`** — wrapper → `llama-server vulkan`
+- **`llama-server`** — orchestrator that creates the distrobox container
+  on first use, copies presets and the wrapper into it, then enters the
+  container
 
-### Container-side (Server Startup)
+### Container-side
 
-- **`llama-server-container`** - Universal server launcher that:
-  - Sources the model config
-  - Builds the llama-server command with proper flags
-  - Executes the server with all configured parameters
+- **`llama-server-container`** — exec's
+  `llama-server --models-preset <preset>.ini --no-models-autoload`. No
+  flag-translation logic — llama.cpp parses the INI directly.
 
-## Adding New Models
+## Adding a New Model
 
-1. Create a new config file in `./configs/`:
+Drop a new `.ini` in `./configs/` and launch it by basename:
 
 ```bash
-cat > ./configs/my-model.conf << 'EOF'
-MODEL_NAME="My Model"
-MODEL_PATH="/path/to/model.gguf"
-CONTEXT_SIZE=4096
-BATCH_SIZE=2048
-UBATCH_SIZE=2048
-THREADS=8
-GPU_LAYERS=999
-FLASH_ATTN=1
-JINJA=1
+cat > ./configs/my-model.ini <<'EOF'
+version = 1
+
+[my-model]
+model = /path/to/model.gguf
+c = 4096
+ngl = 999
+flash-attn = on
+jinja = true
+load-on-startup = true
 EOF
-```
 
-2. Launch it:
-
-```bash
 rocm-llama my-model --port 8000
 ```
 
-## Available Configs
+If the distrobox container already exists, copy the file into the
+container's view (host `$HOME` is shared, so this is just a `cp`):
 
-Current models configured and tested:
+```bash
+cp ./configs/my-model.ini ~/.config/llama-cpp/
+```
 
-- **qwen3.6-35b-a3b** - Qwen3.6-35B-A3B (38.5GB, UD-Q8_K_XL, MoE 3B active, default)
-- **qwen3-coder-next** - Qwen3-Coder-Next (86GB, UD-Q8_K_XL, MoE 3B active)
-- **qwen3-coder-30b** - Qwen3-Coder-30B (34GB, Q8_K_XL, OpenCode-compatible)
-- **devstral-small-24b** - Devstral-Small-2-24B (28GB, Q8_K_XL)
-- **gpt-oss-120b** - GPT-OSS-120B (61GB, F16)
-- **nomic-embed-v1.5** - nomic-embed-text-v1.5 (140MB, Q8_0, 768-dim embeddings, port 8081; disabled by default)
-- **default** - Fallback configuration
+## Available Presets
+
+- **router** — qwen3.6-35b-a3b + nomic-embed-v1.5 from one process
+  (default systemd unit)
+- **qwen3.6-35b-a3b** — Qwen3.6-35B-A3B (38.5 GB, MoE 3B active; chat + embeddings)
+- **qwen3-coder-next** — Qwen3-Coder-Next (86 GB MoE, agentic coding)
+- **qwen3-coder-30b** — Qwen3-Coder-30B (34 GB, OpenCode-compatible)
+- **devstral-small-24b** — Devstral-Small-2-24B (28 GB)
+- **gpt-oss-120b** — GPT-OSS-120B (61 GB, F16)
+- **nomic-embed-v1.5** — 768-dim embedding model
 
 ## Embeddings
 
-Set `EMBEDDINGS=1` in any config to enable the `/v1/embeddings` endpoint alongside `/v1/chat/completions` on the same server. Optionally set `POOLING` (e.g. `mean`, `last`, `cls`) to override llama.cpp's default. `PORT` picks a non-default port for dedicated embedding-only models.
+Set `embeddings = true` and (optionally) `pooling = mean|last|cls` in
+the section. The `/v1/embeddings` endpoint serves any model with that
+flag; the `/v1/chat/completions` endpoint serves any model that has a
+chat template. With multiple sections in one preset the request's
+`model` field selects which one runs.
 
-## Configuration Options
+## Frequently Used INI Keys
 
-| Option | Example | Description |
-|--------|---------|-------------|
-| `MODEL_NAME` | "Qwen3-Coder-30B" | Display name for logging |
-| `MODEL_PATH` | "/path/to/model.gguf" | Path to GGUF model file |
-| `CONTEXT_SIZE` | 262144 | Token context window |
-| `BATCH_SIZE` | 2048 | Batch size for prompt processing |
-| `UBATCH_SIZE` | 2048 | Unbatch size for KV processing |
-| `THREADS` | 8 | CPU threads for offloaded layers |
-| `GPU_LAYERS` | 999 | Layers to keep in VRAM (999 = all) |
-| `FLASH_ATTN` | 1 | Enable flash attention |
-| `JINJA` | 1 | Enable jinja template processing for tools |
-| `NO_MMAP` | 1 | Disable memory mapping (recommended for Strix Halo) |
-| `CACHE_TYPE_K` | q8_0 | KV cache key quantization type |
-| `CACHE_TYPE_V` | q8_0 | KV cache value quantization type |
-| `CACHE_REUSE` | 4096 | Prompt cache reuse size |
-| `KV_UNIFIED` | 1 | Unified KV cache (for unified memory systems) |
-| `SPEC_TYPE` | ngram-mod | Speculative decoding type |
-| `SPEC_NGRAM_SIZE_N` | 10 | N-gram size for speculative decoding |
-| `DRAFT_MIN` | 12 | Minimum draft tokens |
-| `DRAFT_MAX` | 24 | Maximum draft tokens |
-| `CHAT_TEMPLATE_FILE` | (optional) | Custom jinja template for tools |
+| INI key | Example | Notes |
+|---------|---------|-------|
+| `model` | `/path/to/model.gguf` | Required for non-cached models |
+| `c` (`ctx-size`) | `262144` | Token context window |
+| `b` (`batch-size`) | `2048` | Prompt batch size |
+| `ub` (`ubatch-size`) | `2048` | Micro-batch size |
+| `t` (`threads`) | `8` | CPU threads |
+| `ngl` (`n-gpu-layers`) | `999` | Layers offloaded to GPU |
+| `flash-attn` | `on` / `off` / `auto` | Flash attention |
+| `jinja` / `no-jinja` | `true` | Required for tool calling |
+| `no-mmap` | `true` | Recommended for Strix Halo |
+| `cache-type-k` / `cache-type-v` | `q8_0` | KV cache quantization |
+| `cache-reuse` | `4096` | Prompt cache reuse size |
+| `kv-unified` | `true` | Unified KV cache |
+| `embeddings` | `true` | Enable `/v1/embeddings` |
+| `pooling` | `mean` / `last` / `cls` | Embedding pooling type |
+| `spec-type` | `ngram-mod` | Speculative decoding type |
+| `spec-ngram-size-n` | `10` | N-gram size |
+| `draft-min` / `draft-max` | `12` / `24` | Speculative draft bounds |
+| `chat-template-file` | `/abs/path.jinja` | Custom chat template |
+| `load-on-startup` | `true` | Eager-load on server start (preset-only) |
+| `stop-timeout` | `10` | Graceful-unload wait seconds (preset-only) |
+
+Any other `llama-server --help` flag works too — drop the leading
+dashes and use the long or short form.
 
 ## Systemd Service
 
-A parameterized systemd user service is provided for auto-starting models on boot:
+A parameterized user service auto-starts a preset on boot:
 
 ```bash
-# Start a model
-systemctl --user start llama-server@qwen3.6-35b-a3b
+# Start a preset (single-model or router)
+systemctl --user start llama-server@router
 
 # Enable on boot
-systemctl --user enable llama-server@qwen3.6-35b-a3b
+systemctl --user enable llama-server@router
 
-# Switch default model
-systemctl --user disable llama-server@qwen3.6-35b-a3b
+# Switch default
+systemctl --user disable llama-server@router
 systemctl --user enable llama-server@qwen3-coder-next
 
-# Check status
-systemctl --user status llama-server@qwen3.6-35b-a3b
+# Status
+systemctl --user status llama-server@router
 ```
 
-The instance name after `@` matches the config filename (without `.conf`).
+The instance name after `@` matches the preset basename (without `.ini`).
 
 ## Additional Arguments
 
@@ -203,14 +253,12 @@ The first run will automatically create the container with the correct image. Su
 
 ### Model file not found
 
-Ensure the `MODEL_PATH` in your config file exists and is accessible to the container. Paths should be absolute.
+Ensure the `model = ...` path in your `.ini` exists and is accessible to the container. Paths should be absolute.
 
-### Config directory issues
-
-Check the config directory path:
+### Preset directory issues
 
 ```bash
-# Show current config directory in use
+# Show current preset directory in use
 rocm-llama
 
 # Use custom directory
@@ -219,7 +267,11 @@ LLAMA_CONFIG_DIR=/path/to/configs rocm-llama my-model --port 8000
 
 ### Tool calls not working
 
-Ensure `JINJA=1` is set in the model config. This enables the jinja template engine required for tool/function calling in OpenCode and other tools.
+Ensure `jinja = true` is set in the section. This enables the jinja template engine required for tool/function calling in OpenCode and other tools.
+
+### Cached HF models showing in `/v1/models`
+
+llama.cpp reports any model under `~/.cache/llama.cpp` in `/v1/models`. The launcher passes `--no-models-autoload`, so they stay `unloaded` until something explicitly requests them with `?autoload=true` — they don't take resources by default.
 
 ## References
 
