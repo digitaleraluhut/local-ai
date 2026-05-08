@@ -5,6 +5,17 @@ After=default.target
 [Service]
 Type=exec
 ExecStart=/home/jaegle/local-llm/llama-server rocm %i
+
+# The router parent and its model children run inside the distrobox
+# container's cgroup, not this unit's, so KillMode= can't reach them.
+# Signal the in-container router by its --models-preset argument; the
+# model children exit on parent EOF. ExecStopPost SIGKILLs anything
+# left as a belt-and-suspenders.
+ExecStop=-/usr/bin/pkill --signal SIGTERM -f "--models-preset [^ ]*/%i[.]ini"
+ExecStopPost=-/usr/bin/pkill --signal SIGKILL -f "--models-preset [^ ]*/%i[.]ini"
+ExecStopPost=-/usr/bin/pkill --signal SIGKILL -f "^/usr/local/bin/llama-server --embeddings .*--alias.*--model"
+TimeoutStopSec=20
+
 Restart=on-failure
 RestartSec=10
 
