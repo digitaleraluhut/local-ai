@@ -1,0 +1,189 @@
+#!/bin/bash
+# bench — measure llama-server prefill (TTFT) and generation performance.
+#
+# Run this before and after each config change to see which knob actually
+# moved the needle. The headline metric is prefill throughput (tok/s): with
+# agentic tools that inject their own context, TTFT is essentially
+# prompt_tokens / prefill_tok_s, so that is what config tuning targets.
+#
+# Usage:
+#   ./bench                                  # default sweep against the router
+#   ./bench --sizes "4000 16000 32000"       # context sizes to simulate (tokens)
+#   ./bench --runs 5 --predict 128           # iterations per size, tokens to generate
+#   ./bench --warm                           # also measure a cache-hit re-send
+#   ./bench --host H --port P --model ALIAS  # target a different server/model
+#   ./bench --journal [--since "1 hour ago"] # summarize REAL traffic, no requests
+#
+# --journal makes no requests. It parses "prompt eval time" lines from the
+# router's journal so you can see what your actual agentic tool does: small
+# prompt_n = the prompt cache is working (good TTFT); large prompt_n every
+# turn = the tool is busting the prefix cache (that is the real problem).
+#
+# Cold runs send a unique prompt with cache_prompt=false, so every run pays
+# full prefill cost — that is the number to compare across config changes.
+# --warm re-sends an identical prompt with cache_prompt=true to show the
+# prompt-cache / cache-reuse benefit.
+
+set -euo pipefail
+
+HOST=localhost
+PORT=8080
+MODEL=qwen3.6-35b-a3b
+SIZES="4000 16000 32000"
+RUNS=3
+PREDICT=128
+WARM=0
+JOURNAL=0
+SINCE="1 hour ago"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --host)    HOST=$2;    shift 2;;
+    --port)    PORT=$2;    shift 2;;
+    --model)   MODEL=$2;   shift 2;;
+    --sizes)   SIZES=$2;   shift 2;;
+    --runs)    RUNS=$2;    shift 2;;
+    --predict) PREDICT=$2; shift 2;;
+    --warm)    WARM=1;     shift;;
+    --journal) JOURNAL=1;  shift;;
+    --since)   SINCE=$2;   shift 2;;
+    -h|--help) grep '^#' "$0" | sed 's/^#\s\?//'; exit 0;;
+    *) echo "unknown arg: $1" >&2; exit 1;;
+  esac
+done
+
+if [[ $JOURNAL -eq 1 ]]; then
+  echo "Real prompt-eval traffic since: $SINCE"
+  echo "(small prompt_n = cache working; large prompt_n every turn = cache busted)"
+  echo
+  journalctl --user -u llama-server@router --since "$SINCE" --no-pager 2>/dev/null \
+    | grep -E 'prompt eval time' \
+    | LC_ALL=C awk '
+        # llama.cpp line tail: prompt eval time = <ms> ms / <n> tokens ( ... )
+        {
+          i = index($0, "prompt eval time =");
+          if (i == 0) next;
+          split(substr($0, i), f, /[ \t]+/);   # f[5]=ms  f[8]=n_tokens
+          ms = f[5] + 0; n = f[8] + 0;
+          tps = (ms > 0 ? n / ms * 1000 : 0);
+          cnt++; sumn+=n; sumtps+=tps;
+          if(n>maxn)maxn=n; if(minn==""||n<minn)minn=n;
+          if(n<=64)small++; else if(n<2000)med++; else big++;
+          printf "  prompt_n=%-7d  prefill=%8.0f ms  %7.1f tok/s\n", n, ms, tps }
+        END {
+          if(cnt==0){print "  (no prompt-eval lines found in this window)"; exit}
+          printf "\n  %d requests | prompt_n: min=%d avg=%.0f max=%d | avg %.0f tok/s\n",
+                 cnt, minn, sumn/cnt, maxn, sumtps/cnt;
+          printf "  cache-hit-ish (n<=64): %d   small reprocess (<2k): %d   large reprocess (>=2k): %d\n",
+                 small, med, big;
+          if(big>med+small) print "  VERDICT: cache is being busted often — investigate what the tool re-injects.";
+          else if(small>=cnt/2) print "  VERDICT: cache is working well — TTFT should be fine.";
+          else print "  VERDICT: mixed — tool appends a few k tokens per turn; cold prefill speed matters." }'
+  exit 0
+fi
+
+URL="http://$HOST:$PORT/v1/chat/completions"
+
+export BENCH_URL="$URL" BENCH_MODEL="$MODEL" BENCH_SIZES="$SIZES" \
+       BENCH_RUNS="$RUNS" BENCH_PREDICT="$PREDICT" BENCH_WARM="$WARM"
+
+python3 - <<'PY'
+import json, os, sys, time, urllib.request
+
+URL     = os.environ["BENCH_URL"]
+MODEL   = os.environ["BENCH_MODEL"]
+SIZES   = [int(x) for x in os.environ["BENCH_SIZES"].split()]
+RUNS    = int(os.environ["BENCH_RUNS"])
+PREDICT = int(os.environ["BENCH_PREDICT"])
+WARM    = os.environ["BENCH_WARM"] == "1"
+
+# A chunk of filler that looks roughly like prose+code so the tokenizer
+# behaves similarly to a real injected file/context blob.
+LINE = ("def process(node, ctx):  # walk the tree and accumulate state "
+        "the quick brown fox jumps over the lazy dog while the parser "
+        "resolves each symbol against the current lexical scope and emits ")
+
+def make_prompt(approx_tokens, nonce):
+    # ~1.3 tokens per word for this mix; overshoot slightly, real count is
+    # read back from the server's timings.prompt_n anyway.
+    words_needed = int(approx_tokens / 1.3)
+    words = (LINE * (words_needed // len(LINE.split()) + 1)).split()[:words_needed]
+    return f"[run-nonce {nonce}] " + " ".join(words)
+
+def call(prompt, cache_prompt):
+    body = json.dumps({
+        "model": MODEL,
+        "messages": [{"role": "user",
+                      "content": prompt + "\n\nReply with the single word: ok"}],
+        "max_tokens": PREDICT,
+        "cache_prompt": cache_prompt,
+        "temperature": 0,
+    }).encode()
+    req = urllib.request.Request(URL, data=body,
+                                 headers={"Content-Type": "application/json"})
+    t0 = time.time()
+    with urllib.request.urlopen(req, timeout=600) as r:
+        resp = json.load(r)
+    wall_ms = (time.time() - t0) * 1000
+    t = resp.get("timings", {})
+    return {
+        "prompt_n":      t.get("prompt_n"),
+        "prefill_ms":    t.get("prompt_ms"),
+        "prefill_tps":   t.get("prompt_per_second"),
+        "gen_n":         t.get("predicted_n"),
+        "gen_ms":        t.get("predicted_ms"),
+        "gen_tps":       t.get("predicted_per_second"),
+        "wall_ms":       wall_ms,
+    }
+
+def avg(vals):
+    vals = [v for v in vals if v is not None]
+    return sum(vals) / len(vals) if vals else float("nan")
+
+print(f"target : {URL}  model={MODEL}")
+print(f"config : runs={RUNS}  predict={PREDICT}  warm={'yes' if WARM else 'no'}")
+print()
+hdr = f"{'req_tok':>8} {'prompt_n':>9} {'prefill_ms':>11} {'prefill_t/s':>12} {'gen_t/s':>9} {'wall_ms':>9}"
+print("COLD (fresh prefill every run — compare this across config changes)")
+print(hdr)
+print("-" * len(hdr))
+
+warm_rows = []
+for size in SIZES:
+    cold = []
+    for i in range(RUNS):
+        prompt = make_prompt(size, nonce=f"{size}-{i}-{time.time_ns()}")
+        try:
+            cold.append(call(prompt, cache_prompt=False))
+        except Exception as e:
+            print(f"{size:>8}  request failed: {e}", file=sys.stderr)
+            sys.exit(1)
+    print(f"{size:>8} {avg([r['prompt_n'] for r in cold]):>9.0f} "
+          f"{avg([r['prefill_ms'] for r in cold]):>11.0f} "
+          f"{avg([r['prefill_tps'] for r in cold]):>12.1f} "
+          f"{avg([r['gen_tps'] for r in cold]):>9.1f} "
+          f"{avg([r['wall_ms'] for r in cold]):>9.0f}")
+
+    if WARM:
+        # Populate cache, then measure an identical re-send.
+        prompt = make_prompt(size, nonce=f"{size}-warm")
+        call(prompt, cache_prompt=True)
+        w = call(prompt, cache_prompt=True)
+        warm_rows.append((size, w))
+
+if WARM:
+    print()
+    print("WARM (identical re-send, cache_prompt=true — shows prompt-cache benefit)")
+    print(hdr)
+    print("-" * len(hdr))
+    for size, w in warm_rows:
+        print(f"{size:>8} {w['prompt_n'] or 0:>9.0f} "
+              f"{(w['prefill_ms'] or 0):>11.0f} "
+              f"{(w['prefill_tps'] or 0):>12.1f} "
+              f"{(w['gen_tps'] or 0):>9.1f} "
+              f"{w['wall_ms']:>9.0f}")
+
+print()
+print("TTFT for an injected-context tool call ~= prompt_n / prefill_t/s.")
+print("Higher prefill_t/s = lower TTFT. Track the COLD prefill_t/s column.")
+PY
