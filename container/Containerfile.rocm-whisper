@@ -1,0 +1,70 @@
+# Containerfile.rocm-whisper — extends kyuz0's ROCm toolbox image with whisper.cpp
+#
+# Build:
+#   podman build -t rocm-llama-whisper:latest -f Containerfile.rocm-whisper
+#
+# Create distrobox:
+#   distrobox create -n rocm-llama-whisper \
+#     --image localhost/rocm-llama-whisper:latest \
+#     --additional-flags "--device /dev/kfd --device /dev/dri \
+#       --group-add video --group-add render \
+#       --security-opt seccomp=unconfined"
+#
+#   distrobox enter rocm-llama-whisper
+
+# ---------------------------------------------------------------------------
+# Stage 1 — build whisper.cpp with ROCm/HIP for gfx1151 (Strix Halo)
+# ---------------------------------------------------------------------------
+FROM registry.fedoraproject.org/fedora:43 AS whisper-builder
+
+# AMD ROCm 7.2 repository (same as kyuz0's toolboxes)
+RUN printf '%s\n' \
+    '[ROCm-7.2]' \
+    'name=ROCm7.2' \
+    'baseurl=https://repo.radeon.com/rocm/rhel10/7.2/main' \
+    'enabled=1' \
+    'priority=50' \
+    'gpgcheck=0' \
+    > /etc/yum.repos.d/rocm.repo
+
+# Build dependencies
+RUN dnf install -y --nogpgcheck \
+    git cmake gcc-c++ make \
+    rocm-llvm rocm-device-libs hip-runtime-amd hip-devel \
+    rocblas rocblas-devel hipblas hipblas-devel rocm-cmake \
+    libomp-devel libomp \
+    && dnf clean all && rm -rf /var/cache/dnf/*
+
+ENV ROCM_PATH=/opt/rocm \
+    HIP_PATH=/opt/rocm \
+    HIP_CLANG_PATH=/opt/rocm/llvm/bin \
+    PATH=/opt/rocm/bin:/opt/rocm/llvm/bin:$PATH
+
+# Clone and build whisper.cpp
+RUN git clone --depth 1 https://github.com/ggml-org/whisper.cpp /opt/whisper.cpp
+WORKDIR /opt/whisper.cpp
+
+RUN cmake -B build \
+    -DGGML_HIP=ON \
+    -DAMDGPU_TARGETS=gfx1151 \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DROCM_PATH=/opt/rocm \
+    -DHIP_PATH=/opt/rocm \
+    -DHIP_PLATFORM=amd \
+    && cmake --build build --config Release -j$(nproc)
+
+# ---------------------------------------------------------------------------
+# Stage 2 — kyuz0's ROCm runtime image + whisper-server
+# ---------------------------------------------------------------------------
+FROM docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2
+
+COPY --from=whisper-builder /opt/whisper.cpp/build/bin/whisper-server \
+    /usr/local/bin/whisper-server
+
+# Include the wrapper script so the container is self-contained
+COPY whisper-server-container /usr/local/bin/whisper-server-container
+RUN chmod +x /usr/local/bin/whisper-server-container
+
+RUN ldconfig
+
+CMD ["/bin/bash"]
