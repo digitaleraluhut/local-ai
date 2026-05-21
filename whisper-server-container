@@ -29,7 +29,7 @@ fi
 # Parse INI values (section-agnostic, reads first [section]'s keys)
 parse_ini() {
     local key="$1"
-    sed -n "/^\[.*\]/,/^\[/p" "$PRESET_FILE" | grep "^${key}=" | tail -1 | cut -d= -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+    sed -n "/^\[.*\]/,/^\[/p" "$PRESET_FILE" | grep "^${key}\s*=" | tail -1 | cut -d= -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
 MODEL="$(parse_ini model)"
@@ -66,14 +66,16 @@ fi
 # Build whisper-server command
 WHISPER_CMD=(whisper-server)
 
+# --convert: write uploaded audio to a temp file via ffmpeg before processing.
+# Required for HTTP file uploads to work — without it the server passes raw
+# POST body bytes as a filename string.
+WHISPER_CMD+=(--convert)
+
 [[ -n "$HOST" ]] && WHISPER_CMD+=(--host "$HOST") || WHISPER_CMD+=(--host 0.0.0.0)
 [[ -n "$PORT" ]] && WHISPER_CMD+=(--port "$PORT")
 WHISPER_CMD+=(-m "$MODEL_PATH")
 [[ -n "$LANG" ]]  && WHISPER_CMD+=(--language "$LANG")
 [[ -n "$THREADS" ]] && WHISPER_CMD+=(-t "$THREADS")
-[[ -n "$TEMP" ]] && WHISPER_CMD+=(--temperature "$TEMP")
-[[ -n "$TEMP_INC" ]] && WHISPER_CMD+=(--temperature-inc "$TEMP_INC")
-[[ -n "$MAX_SEGMENT" ]] && WHISPER_CMD+=(--max-segment-ms "$MAX_SEGMENT")
 
 if [[ "$VAD" == "true" ]]; then
     WHISPER_CMD+=(--vad)

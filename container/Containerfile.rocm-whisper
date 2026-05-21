@@ -60,6 +60,8 @@ FROM docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2
 
 COPY --from=whisper-builder /opt/whisper.cpp/build/bin/whisper-server \
     /usr/local/bin/whisper-server
+COPY --from=whisper-builder /opt/whisper.cpp/build/src/libwhisper.so.1 \
+    /usr/local/lib64/libwhisper.so.1
 
 # Include the wrapper script so the container is self-contained
 COPY whisper-server-container /usr/local/bin/whisper-server-container

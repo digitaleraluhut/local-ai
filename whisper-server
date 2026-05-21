@@ -42,5 +42,8 @@ if [[ ! " $@ " =~ " --host " ]]; then
     set -- "$@" "--host" "0.0.0.0"
 fi
 
+# Ensure the preset is available inside the container
+cat "$CONFIG_FILE" | distrobox enter "$CONTAINER_NAME" -- bash -c "cat > ~/.config/llama-cpp/$(basename "$CONFIG_FILE")" 2>/dev/null || true
+
 # The wrapper is baked into the image at /usr/local/bin
 distrobox enter "$CONTAINER_NAME" -- "/usr/local/bin/whisper-server-container" "$MODEL_CONFIG" "$@"
