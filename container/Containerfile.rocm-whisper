@@ -58,6 +58,10 @@ RUN cmake -B build \
 # ---------------------------------------------------------------------------
 FROM docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2
 
+# ffmpeg is required by whisper-server --convert to handle uploaded audio files
+RUN dnf install -y ffmpeg-free \
+    && dnf clean all && rm -rf /var/cache/dnf/*
+
 COPY --from=whisper-builder /opt/whisper.cpp/build/bin/whisper-server \
     /usr/local/bin/whisper-server
 COPY --from=whisper-builder /opt/whisper.cpp/build/src/libwhisper.so.1 \
