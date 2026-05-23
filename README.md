@@ -297,6 +297,103 @@ curl -X POST http://flinker:8081/inference \
 
 For OpenAI-compatible clients, a proxy may be needed.
 
+## Image Generation — ComfyUI + FLUX Dev
+
+Local image generation via [ComfyUI](https://github.com/comfyanonymous/ComfyUI) with the [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) custom node, running **FLUX.1 [dev] Q4_K_S GGUF** on ROCm GPU. Exposed through an OpenAI-compatible `/v1/images/generations` endpoint for LobeHub and other agent tools.
+
+> **License note:** FLUX.1 [dev] has a non-commercial license. This is acceptable for purely local, personal use.
+
+### Container Image
+
+Uses the official AMD PyTorch+ROCm base image:
+
+```bash
+# Container is auto-created on first run
+./comfyui-server flux-dev
+```
+
+Base image: `docker.io/rocm/pytorch:rocm7.2.2_ubuntu24.04_py3.12_pytorch_release_2.10.0`
+
+### Model Download
+
+Download the FLUX dev model (~16 GB total):
+
+```bash
+./scripts/download-flux-models.sh
+```
+
+| Component | File | Size |
+|-----------|------|------|
+| UNet (diffusion) | `flux1-dev-Q4_K_S.gguf` | ~6.8 GB |
+| T5 text encoder | `t5xxl_fp16.safetensors` | ~9.5 GB |
+| CLIP-L encoder | `clip_l.safetensors` | ~250 MB |
+| VAE | `ae.safetensors` | ~320 MB |
+
+Models are cached in `~/models/comfyui/`.
+
+### Presets
+
+Workflow JSON presets in `configs/comfyui/workflows/`:
+
+| Preset | Size | Steps | Time (GPU) | Quality |
+|--------|------|-------|------------|---------|
+| `flux-dev` | 1024×1024 | 20 | ~2-3 min | Best |
+| `flux-dev-fast` | 1024×1024 | 8 | ~1 min | Good |
+| `flux-dev-3-2` | 1344×896 | 20 | ~2-3 min | Best |
+| `flux-dev-2-3` | 896×1344 | 20 | ~2-3 min | Best |
+
+### Setup
+
+```bash
+# One-time: install ComfyUI + deps inside the container
+./scripts/setup-comfyui-container.sh
+
+# One-time: download models
+./scripts/download-flux-models.sh
+
+# Start the server
+systemctl --user enable --now comfyui-server@flux-dev
+```
+
+### Usage
+
+```bash
+# Generate an image via the OpenAI-compatible API
+curl http://localhost:8082/v1/images/generations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "flux-dev",
+    "prompt": "a red apple on a wooden table",
+    "size": "1024x1024",
+    "n": 1
+  }'
+```
+
+### Environment Variables
+
+```bash
+# Use a different base image
+COMFYUI_IMAGE=docker.io/rocm/pytorch:latest ./comfyui-server flux-dev
+
+# Use a different container name
+COMFYUI_CONTAINER=my-comfyui ./comfyui-server flux-dev
+```
+
+### Systemd
+
+Same pattern as llama.cpp and whisper:
+
+```bash
+systemctl --user start comfyui-server@flux-dev
+systemctl --user enable comfyui-server@flux-dev
+```
+
+The instance name matches the workflow preset basename (`flux-dev` → `configs/comfyui/workflows/flux-dev.json`).
+
+### Integration with LobeHub
+
+Point LobeHub at `http://flinker:8082` for the image generation endpoint. The bridge exposes `POST /v1/images/generations` and `GET /v1/models` in OpenAI format.
+
 ## Available Presets
 
 ### LLM
@@ -311,6 +408,12 @@ For OpenAI-compatible clients, a proxy may be needed.
 
 ### STT
 - **whisper** — whisper.cpp `small` model, German, port 8081
+
+### Image Generation
+- **flux-dev** — 1024×1024, 20 steps, best quality (~2-3 min)
+- **flux-dev-fast** — 1024×1024, 8 steps, fast preview (~1 min)
+- **flux-dev-3-2** — 1344×896 landscape, 20 steps
+- **flux-dev-2-3** — 896×1344 portrait, 20 steps
 
 ## Embeddings
 
@@ -411,7 +514,11 @@ llama.cpp reports any model under `~/.cache/llama.cpp` in `/v1/models`. The laun
 ## References
 
 - [llama.cpp](https://github.com/ggml-org/llama.cpp) - The amazing inference engine
+- [whisper.cpp](https://github.com/ggml-org/whisper.cpp) - Speech-to-text
+- [ComfyUI](https://github.com/comfyanonymous/ComfyUI) - Node-based image generation
+- [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) - GGUF quantization for ComfyUI
 - [kyuz0/amd-strix-halo-toolboxes](https://github.com/kyuz0/amd-strix-halo-toolboxes) - Containerized GPU toolchains
+- [AMD PyTorch+ROCm Docker](https://hub.docker.com/r/rocm/pytorch) - Official GPU-accelerated PyTorch images
 - [distrobox](https://distrobox.it/) - Container wrapper for easy integration
 - [OpenCode](https://opencode.ai/) - AI-powered coding assistant
 
