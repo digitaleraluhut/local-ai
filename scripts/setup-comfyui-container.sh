@@ -14,7 +14,7 @@ CONTAINER_NAME="${1:-comfyui-rocm}"
 echo "==> Setting up ComfyUI in distrobox container: $CONTAINER_NAME"
 
 # Check container exists
-if ! distrobox list | grep -q "^.*| $CONTAINER_NAME |"; then
+if ! distrobox list | grep -q "| $CONTAINER_NAME"; then
     echo "Error: Container $CONTAINER_NAME not found."
     echo "Create it first by running: ./comfyui-server flux-schnell"
     echo "(This will auto-create the container from the kyuz0 ROCm image.)"
@@ -45,7 +45,7 @@ cd ~/ComfyUI
 pip3 install -r requirements.txt
 
 echo "==> Installing ComfyUI-GGUF custom node..."
-CUSTOM_NODES_DIR="~/ComfyUI/custom_nodes"
+CUSTOM_NODES_DIR="${HOME}/ComfyUI/custom_nodes"
 mkdir -p "$CUSTOM_NODES_DIR"
 
 if [[ -d "$CUSTOM_NODES_DIR/ComfyUI-GGUF" ]]; then

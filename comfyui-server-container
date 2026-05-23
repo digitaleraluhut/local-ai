@@ -53,10 +53,11 @@ echo ""
 
 # Start ComfyUI in the background
 cd "$COMFYUI_DIR"
-python main.py \
+python3 main.py \
     --listen 0.0.0.0 \
     --port "$COMFYUI_PORT" \
     --disable-xformers \
+    --cpu \
     "$@" &
 
 COMFYUI_PID=$!
@@ -82,7 +83,7 @@ if [[ -f "$BRIDGE_SCRIPT" ]]; then
     COMFYUI_HOST="127.0.0.1" \
     COMFYUI_PORT="$COMFYUI_PORT" \
     BRIDGE_PORT="$BRIDGE_PORT" \
-        python "$BRIDGE_SCRIPT" &
+        python3 "$BRIDGE_SCRIPT" &
     BRIDGE_PID=$!
     wait $COMFYUI_PID
 else

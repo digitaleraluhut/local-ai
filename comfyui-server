@@ -20,26 +20,26 @@ MODEL_CONFIG="${1:-}"
 if [[ -z "$MODEL_CONFIG" ]]; then
     echo "Usage: comfyui-server <config-name> [extra args]"
     echo ""
-    echo "Available presets in $CONFIG_DIR/comfyui/:"
-    ls -1 "$CONFIG_DIR"/comfyui/*.json 2>/dev/null | while read -r json; do
-        basename=$(basename "$json" .json)
-        echo "  - $basename"
+    echo "Available presets in $CONFIG_DIR/comfyui/workflows/:"
+    ls -1 "$CONFIG_DIR"/comfyui/workflows/*.json 2>/dev/null | while read -r json; do
+        preset_name=$(basename "$json" .json)
+        echo "  - $preset_name"
     done
     exit 0
 fi
 
 shift
 
-WORKFLOW_FILE="$CONFIG_DIR/comfyui/${MODEL_CONFIG}.json"
+WORKFLOW_FILE="$CONFIG_DIR/comfyui/workflows/${MODEL_CONFIG}.json"
 if [[ ! -f "$WORKFLOW_FILE" ]]; then
     echo "Error: Workflow preset not found: $WORKFLOW_FILE"
     echo "Available presets:"
-    ls -1 "$CONFIG_DIR"/comfyui/*.json 2>/dev/null | xargs -n1 basename -s .json
+    ls -1 "$CONFIG_DIR"/comfyui/workflows/*.json 2>/dev/null | xargs -n1 basename -s .json
     exit 1
 fi
 
 # Check if container exists, if not create it
-if ! distrobox list | grep -q "^.*| $CONTAINER_NAME |"; then
+if ! distrobox list | grep -q "| $CONTAINER_NAME"; then
     echo "Container $CONTAINER_NAME not found. Creating with $IMAGE..."
     distrobox create -n "$CONTAINER_NAME" \
         --image "$IMAGE" \
@@ -50,10 +50,16 @@ if ! distrobox list | grep -q "^.*| $CONTAINER_NAME |"; then
 fi
 
 # Sync workflow presets into container
-for json in "$CONFIG_DIR"/comfyui/*.json; do
+for json in "$CONFIG_DIR"/comfyui/workflows/*.json; do
     [[ -f "$json" ]] || continue
     cat "$json" | distrobox enter "$CONTAINER_NAME" -- bash -c "mkdir -p ~/.config/comfyui/workflows && cat > ~/.config/comfyui/workflows/$(basename "$json")" 2>/dev/null || true
 done
+
+# Sync container wrapper into container
+CONTAINER_WRAPPER="$SCRIPT_DIR/comfyui-server-container"
+if [[ -f "$CONTAINER_WRAPPER" ]]; then
+    cat "$CONTAINER_WRAPPER" | distrobox enter "$CONTAINER_NAME" -- bash -c "mkdir -p ~/.local/bin && cat > ~/.local/bin/comfyui-server-container && chmod +x ~/.local/bin/comfyui-server-container" 2>/dev/null || true
+fi
 
 # Sync bridge script into container
 BRIDGE_SCRIPT="$SCRIPT_DIR/comfyui-bridge/bridge.py"

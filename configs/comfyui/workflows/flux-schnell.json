@@ -52,7 +52,10 @@
   "6": {
     "inputs": {
       "model": ["1", 0],
-      "conditioning": ["5", 0]
+      "max_shift": 1.15,
+      "base_shift": 0.5,
+      "width": 1024,
+      "height": 1024
     },
     "class_type": "ModelSamplingFlux",
     "_meta": {
@@ -102,6 +105,7 @@
   },
   "11": {
     "inputs": {
+      "model": ["6", 0],
       "scheduler": "normal",
       "steps": 4,
       "denoise": 1.0

@@ -73,7 +73,7 @@ def inject_prompt(workflow: dict, prompt: str, width: int, height: int, seed: in
     return wf
 
 
-def wait_for_prompt(prompt_id: str, timeout: int = 300) -> dict:
+def wait_for_prompt(prompt_id: str, timeout: int = 1200) -> dict:
     """Poll ComfyUI /history until our prompt is complete."""
     start = time.time()
     while time.time() - start < timeout:
