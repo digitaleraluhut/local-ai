@@ -172,8 +172,8 @@ This setup extends llama.cpp with speech-to-text via [whisper.cpp](https://githu
 built with ROCm/HIP acceleration on the same Strix Halo GPU.
 
 STT runs as a **separate server** on its own port (default `8081`), not
-inside the llama.cpp router. whisper.cpp is a different binary with an
-OpenAI-compatible `/v1/audio/transcriptions` endpoint.
+inside the llama.cpp router. whisper.cpp is a different binary with a
+custom `/inference` endpoint.
 
 ### Container Image
 
@@ -239,9 +239,11 @@ whisper-server whisper --port 8081
 # Or directly
 distrobox enter rocm-llama-whisper -- whisper-server \
   --host 0.0.0.0 --port 8081 \
-  -m /home/jaegle/models/whisper/ggml-large-v3-turbo.bin \
+  -m /home/jaegle/models/whisper/ggml-small.bin \
   --language de -t 4
 ```
+
+> **Note:** m4a files work directly — no conversion needed.
 
 ### Systemd
 
@@ -257,8 +259,16 @@ The instance name matches the INI basename (`whisper` → `whisper.ini`).
 ### Integration with LobeHub
 
 Point LobeHub at `http://flinker:8081` for the STT endpoint. whisper.cpp
-exposes an OpenAI-compatible `/v1/audio/transcriptions` API, so it works
-as a drop-in STT provider.
+uses a custom `POST /inference` endpoint (not OpenAI-compatible):
+
+```bash
+curl -X POST http://flinker:8081/inference \
+  -H "Content-Type: multipart/form-data" \
+  -F file="@audio.m4a" \
+  -F language="de"
+```
+
+For OpenAI-compatible clients, a proxy may be needed.
 
 ## Available Presets
 
