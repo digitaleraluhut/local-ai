@@ -1,0 +1,99 @@
+#!/bin/bash
+# Container-side wrapper for ComfyUI image generation server.
+# Starts ComfyUI and the OpenAI-compatible bridge.
+#
+# Usage: comfyui-server-container <preset-name> [extra args]
+
+set -e
+
+CONFIG_DIR="${COMFYUI_CONFIG_DIR:=${XDG_CONFIG_HOME:=$HOME/.config}/comfyui}"
+WORKFLOWS_DIR="$CONFIG_DIR/workflows"
+PRESET_NAME="${1:-}"
+
+if [[ -z "$PRESET_NAME" ]]; then
+    echo "Usage: comfyui-server-container <preset-name> [extra args]"
+    echo "Available workflow presets in $WORKFLOWS_DIR:"
+    ls -1 "$WORKFLOWS_DIR"/*.json 2>/dev/null | xargs -n1 basename -s .json || echo "  (none)"
+    exit 1
+fi
+
+shift
+
+WORKFLOW_FILE="$WORKFLOWS_DIR/${PRESET_NAME}.json"
+if [[ ! -f "$WORKFLOW_FILE" ]]; then
+    echo "Error: Workflow preset not found: $WORKFLOW_FILE"
+    echo "Available:"
+    ls -1 "$WORKFLOWS_DIR"/*.json 2>/dev/null | xargs -n1 basename -s .json || echo "  (none)"
+    exit 1
+fi
+
+# ROCm env vars for Strix Halo unified memory.
+if [[ -d /opt/rocm ]]; then
+    export GGML_CUDA_ENABLE_UNIFIED_MEMORY="${GGML_CUDA_ENABLE_UNIFIED_MEMORY:-1}"
+    export GPU_MAX_HW_QUEUES="${GPU_MAX_HW_QUEUES:-2}"
+    export LLAMA_SET_ROWS="${LLAMA_SET_ROWS:-1}"
+fi
+
+COMFYUI_DIR="${COMFYUI_DIR:=${HOME}/ComfyUI}"
+BRIDGE_PORT="${COMFYUI_BRIDGE_PORT:-8082}"
+COMFYUI_PORT="${COMFYUI_PORT:-8188}"
+
+# Ensure ComfyUI is installed
+if [[ ! -d "$COMFYUI_DIR" ]]; then
+    echo "Error: ComfyUI not found at $COMFYUI_DIR"
+    echo "Run the setup script first: ./scripts/setup-comfyui-container.sh"
+    exit 1
+fi
+
+echo "Starting ComfyUI with preset: $PRESET_NAME"
+echo "Workflow: $WORKFLOW_FILE"
+echo "ComfyUI port: $COMFYUI_PORT"
+echo "Bridge port: $BRIDGE_PORT"
+echo ""
+
+# Use system Python with user site-packages (PyTorch+ROCm pre-installed in container)
+PYTHON="${COMFYUI_PYTHON:-python3}"
+
+# Add venv site-packages to PYTHONPATH so ComfyUI can find torch+rocm
+VENV_SITE="/opt/venv/lib/python3.12/site-packages"
+export PYTHONPATH="${VENV_SITE}:${PYTHONPATH}"
+
+# Start ComfyUI in the background
+cd "$COMFYUI_DIR"
+$PYTHON main.py \
+    --listen 0.0.0.0 \
+    --port "$COMFYUI_PORT" \
+    --disable-xformers \
+    "$@" &
+
+COMFYUI_PID=$!
+
+# Wait for ComfyUI to be ready
+for i in {1..60}; do
+    if curl -s "http://127.0.0.1:${COMFYUI_PORT}/system_stats" > /dev/null 2>&1; then
+        echo "ComfyUI ready on port $COMFYUI_PORT"
+        break
+    fi
+    if ! kill -0 $COMFYUI_PID 2>/dev/null; then
+        echo "Error: ComfyUI exited unexpectedly"
+        exit 1
+    fi
+    sleep 1
+done
+
+# Start the bridge
+BRIDGE_SCRIPT="${HOME}/.local/bin/comfyui-bridge.py"
+if [[ -f "$BRIDGE_SCRIPT" ]]; then
+    echo "Starting OpenAI bridge on port $BRIDGE_PORT"
+    WORKFLOW_FILE="$WORKFLOW_FILE" \
+    COMFYUI_HOST="127.0.0.1" \
+    COMFYUI_PORT="$COMFYUI_PORT" \
+    BRIDGE_PORT="$BRIDGE_PORT" \
+        $PYTHON "$BRIDGE_SCRIPT" &
+    BRIDGE_PID=$!
+    wait $COMFYUI_PID
+else
+    echo "Warning: bridge script not found at $BRIDGE_SCRIPT"
+    echo "ComfyUI running without OpenAI API bridge."
+    wait $COMFYUI_PID
+fi
