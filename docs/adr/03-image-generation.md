@@ -69,10 +69,11 @@ The service follows the existing stack patterns:
 - Auto-suspend (idle timeout → auto-stop) is deferred to a future enhancement
 - ~30 second cold start if manually stopped and restarted later
 
-**6. Aspect Ratios: Pre-built workflow templates**
-- `flux-dev.json` → 1024×1024 (1:1)
-- `flux-dev-3-2.json` → 1344×896 (3:2 landscape)
-- `flux-dev-2-3.json` → 896×1344 (2:3 portrait)
+**6. Aspect Ratios & Speed Presets: Pre-built workflow templates**
+- `flux-dev.json` → 1024×1024 (1:1), **20 steps** — best quality (~2–3 min)
+- `flux-dev-fast.json` → 1024×1024 (1:1), **8 steps** — faster preview (~1 min), same model file
+- `flux-dev-3-2.json` → 1344×896 (3:2 landscape), 20 steps
+- `flux-dev-2-3.json` → 896×1344 (2:3 portrait), 20 steps
 - OpenAI `size` parameter selects the appropriate template
 
 ## Consequences
@@ -90,6 +91,7 @@ The service follows the existing stack patterns:
 ### Negative
 
 - **Cannot coexist with the 86B model**: If `qwen3-coder-next` (~86 GB) is loaded, image generation will OOM. The 86B model must stay on `load-on-startup = false`.
+- **Slower than schnell**: Full-quality dev requires ~2–3 minutes per image on GPU (vs. ~15 seconds for schnell). Mitigated by `flux-dev-fast` preset (8 steps, ~1 minute) for quick previews.
 - **Cold start latency**: If auto-suspend is added later, ~30 seconds to load models from NVMe on first request
 - **No persistent image storage strategy**: Images are saved in ComfyUI's output folder; no cleanup policy defined yet
 - **ComfyUI web UI exposed**: Port 8188 serves the ComfyUI interface while running; acceptable since this is a local-only service

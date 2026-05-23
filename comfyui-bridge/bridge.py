@@ -162,6 +162,7 @@ def list_models():
             "object": "list",
             "data": [
                 {"id": "flux-dev", "object": "model"},
+                {"id": "flux-dev-fast", "object": "model"},
                 {"id": "flux-dev-3-2", "object": "model"},
                 {"id": "flux-dev-2-3", "object": "model"},
             ],
