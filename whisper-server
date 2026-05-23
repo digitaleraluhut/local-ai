@@ -1,6 +1,6 @@
 #!/bin/bash
 # Host-side launcher for whisper.cpp STT server.
-# Uses the llama-rocm-whisper distrobox container.
+# Uses the rocm-llama-whisper distrobox container.
 #
 # Usage: whisper-server [config-name] [extra whisper-server args]
 #   whisper-server whisper --port 8081

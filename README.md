@@ -227,7 +227,24 @@ model = small
 language = de
 threads = 4
 port = 8081
-vad = true
+vad = false
+```
+
+#### Adding a New Preset
+
+Drop a new `.ini` in `./configs/` and launch it by basename:
+
+```bash
+# Create a new preset
+cat > ./configs/whisper-en.ini <<EOF
+[stt-default]
+model = base
+language = en
+port = 8082
+EOF
+
+# Launch it
+whisper-server whisper-en --port 8082
 ```
 
 ### Running
@@ -244,6 +261,16 @@ distrobox enter rocm-llama-whisper -- whisper-server \
 ```
 
 > **Note:** m4a files work directly — no conversion needed.
+
+### Environment Variables
+
+```bash
+# Use custom preset directory
+LLAMA_CONFIG_DIR=~/.config/model-configs whisper-server whisper
+
+# Use a different container name
+LLAMA_WHISPER_CONTAINER=my-whisper whisper-server whisper
+```
 
 ### Systemd
 
@@ -272,6 +299,7 @@ For OpenAI-compatible clients, a proxy may be needed.
 
 ## Available Presets
 
+### LLM
 - **router** — qwen3.6-35b-a3b + nomic-embed-v1.5 from one process
   (default systemd unit)
 - **qwen3.6-35b-a3b** — Qwen3.6-35B-A3B (38.5 GB, MoE 3B active; chat + embeddings)
@@ -280,6 +308,9 @@ For OpenAI-compatible clients, a proxy may be needed.
 - **devstral-small-24b** — Devstral-Small-2-24B (28 GB)
 - **gpt-oss-120b** — GPT-OSS-120B (61 GB, F16)
 - **nomic-embed-v1.5** — 768-dim embedding model
+
+### STT
+- **whisper** — whisper.cpp `small` model, German, port 8081
 
 ## Embeddings
 
