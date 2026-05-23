@@ -51,13 +51,19 @@ echo "ComfyUI port: $COMFYUI_PORT"
 echo "Bridge port: $BRIDGE_PORT"
 echo ""
 
+# Use system Python with user site-packages (PyTorch+ROCm pre-installed in container)
+PYTHON="${COMFYUI_PYTHON:-python3}"
+
+# Add venv site-packages to PYTHONPATH so ComfyUI can find torch+rocm
+VENV_SITE="/opt/venv/lib/python3.12/site-packages"
+export PYTHONPATH="${VENV_SITE}:${PYTHONPATH}"
+
 # Start ComfyUI in the background
 cd "$COMFYUI_DIR"
-python3 main.py \
+$PYTHON main.py \
     --listen 0.0.0.0 \
     --port "$COMFYUI_PORT" \
     --disable-xformers \
-    --cpu \
     "$@" &
 
 COMFYUI_PID=$!
@@ -83,7 +89,7 @@ if [[ -f "$BRIDGE_SCRIPT" ]]; then
     COMFYUI_HOST="127.0.0.1" \
     COMFYUI_PORT="$COMFYUI_PORT" \
     BRIDGE_PORT="$BRIDGE_PORT" \
-        python3 "$BRIDGE_SCRIPT" &
+        $PYTHON "$BRIDGE_SCRIPT" &
     BRIDGE_PID=$!
     wait $COMFYUI_PID
 else

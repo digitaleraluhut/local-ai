@@ -13,7 +13,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_DIR="${LLAMA_CONFIG_DIR:=$SCRIPT_DIR/configs}"
 CONTAINER_NAME="${COMFYUI_CONTAINER:-comfyui-rocm}"
-IMAGE="${COMFYUI_IMAGE:-docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2}"
+IMAGE="${COMFYUI_IMAGE:-docker.io/rocm/pytorch:rocm7.2.2_ubuntu24.04_py3.12_pytorch_release_2.10.0}"
 
 MODEL_CONFIG="${1:-}"
 
@@ -43,7 +43,7 @@ if ! distrobox list | grep -q "| $CONTAINER_NAME"; then
     echo "Container $CONTAINER_NAME not found. Creating with $IMAGE..."
     distrobox create -n "$CONTAINER_NAME" \
         --image "$IMAGE" \
-        --additional-flags "--device /dev/kfd --device /dev/dri --group-add video --group-add render --security-opt seccomp=unconfined"
+        --additional-flags "--device /dev/kfd --device /dev/dri --security-opt seccomp=unconfined"
     
     echo "Container created. Run ./scripts/setup-comfyui-container.sh to install ComfyUI inside it."
     exit 1
