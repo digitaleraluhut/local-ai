@@ -1,0 +1,49 @@
+#!/bin/bash
+# Host-side launcher for whisper.cpp STT server.
+# Uses the rocm-llama-whisper distrobox container.
+#
+# Usage: whisper-server [config-name] [extra whisper-server args]
+#   whisper-server whisper --port 8081
+#   whisper-server whisper --port 8081 --language en
+#
+# If no config name is given, lists available presets and exits.
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_DIR="${LLAMA_CONFIG_DIR:=$SCRIPT_DIR/configs}"
+CONTAINER_NAME="${LLAMA_WHISPER_CONTAINER:-rocm-llama-whisper}"
+
+MODEL_CONFIG="${1:-}"
+
+if [[ -z "$MODEL_CONFIG" ]]; then
+    echo "Usage: whisper-server <config-name> [extra args]"
+    echo ""
+    echo "Available presets in $CONFIG_DIR:"
+    ls -1 "$CONFIG_DIR"/whisper*.ini 2>/dev/null | while read -r ini; do
+        basename=$(basename "$ini" .ini)
+        echo "  - $basename"
+    done
+    exit 0
+fi
+
+shift
+
+CONFIG_FILE="$CONFIG_DIR/${MODEL_CONFIG}.ini"
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "Error: Preset not found: $CONFIG_FILE"
+    echo "Available presets:"
+    ls -1 "$CONFIG_DIR"/whisper*.ini 2>/dev/null | xargs -n1 basename -s .ini
+    exit 1
+fi
+
+# Add default --host if not specified
+if [[ ! " $@ " =~ " --host " ]]; then
+    set -- "$@" "--host" "0.0.0.0"
+fi
+
+# Ensure the preset is available inside the container
+cat "$CONFIG_FILE" | distrobox enter "$CONTAINER_NAME" -- bash -c "cat > ~/.config/llama-cpp/$(basename "$CONFIG_FILE")" 2>/dev/null || true
+
+# The wrapper is baked into the image at /usr/local/bin
+distrobox enter "$CONTAINER_NAME" -- "/usr/local/bin/whisper-server-container" "$MODEL_CONFIG" "$@"

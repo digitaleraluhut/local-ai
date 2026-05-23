@@ -166,8 +166,140 @@ container's view (host `$HOME` is shared, so this is just a `cp`):
 cp ./configs/my-model.ini ~/.config/llama-cpp/
 ```
 
+## Speech-to-Text (STT) — whisper.cpp
+
+This setup extends llama.cpp with speech-to-text via [whisper.cpp](https://github.com/ggml-org/whisper.cpp),
+built with ROCm/HIP acceleration on the same Strix Halo GPU.
+
+STT runs as a **separate server** on its own port (default `8081`), not
+inside the llama.cpp router. whisper.cpp is a different binary with a
+custom `/inference` endpoint.
+
+### Container Image
+
+whisper.cpp is not in the upstream kyuz0 image. A custom image is defined
+in `container/Containerfile.rocm-whisper`:
+
+```bash
+# Build the image (one-time)
+./scripts/build-whisper-image.sh
+
+# Create the distrobox
+distrobox create -n rocm-llama-whisper \
+  --image localhost/rocm-llama-whisper:latest \
+  --additional-flags "--device /dev/kfd --device /dev/dri \
+    --group-add video --group-add render \
+    --security-opt seccomp=unconfined"
+```
+
+The Containerfile extends kyuz0's ROCm 7.2 image (which has llama.cpp) and
+adds `whisper-server` on top — the resulting image contains both runtimes.
+
+### Model Download
+
+Download a Whisper model in GGML format:
+
+```bash
+# Download small model (~466 MB, good for testing / dev)
+./scripts/download-whisper-model.sh small
+
+# Or a larger model for production quality
+./scripts/download-whisper-model.sh large-v3-turbo
+```
+
+| Model | Size | Use case |
+|---|---|---|
+| `tiny` | ~39 MB | Fastest, lowest quality |
+| `base` | ~74 MB | Fast, acceptable quality |
+| `small` | ~466 MB | **Default — good balance** |
+| `medium` | ~1.5 GB | High quality, slower |
+| `large-v3-turbo` | ~1.6 GB | Best quality, slowest load |
+
+Models are cached in `~/models/whisper/` by default.
+
+### Configuration
+
+INI preset in `configs/whisper.ini`:
+
+```ini
+[stt-default]
+model = small
+language = de
+threads = 4
+port = 8081
+vad = false
+```
+
+#### Adding a New Preset
+
+Drop a new `.ini` in `./configs/` and launch it by basename:
+
+```bash
+# Create a new preset
+cat > ./configs/whisper-en.ini <<EOF
+[stt-default]
+model = base
+language = en
+port = 8082
+EOF
+
+# Launch it
+whisper-server whisper-en --port 8082
+```
+
+### Running
+
+```bash
+# CLI — enters the container and starts whisper-server
+whisper-server whisper --port 8081
+
+# Or directly
+distrobox enter rocm-llama-whisper -- whisper-server \
+  --host 0.0.0.0 --port 8081 \
+  -m /home/jaegle/models/whisper/ggml-small.bin \
+  --language de -t 4
+```
+
+> **Note:** m4a files work directly — no conversion needed.
+
+### Environment Variables
+
+```bash
+# Use custom preset directory
+LLAMA_CONFIG_DIR=~/.config/model-configs whisper-server whisper
+
+# Use a different container name
+LLAMA_WHISPER_CONTAINER=my-whisper whisper-server whisper
+```
+
+### Systemd
+
+Same pattern as llama.cpp — auto-start on boot:
+
+```bash
+systemctl --user start whisper-server@whisper
+systemctl --user enable whisper-server@whisper
+```
+
+The instance name matches the INI basename (`whisper` → `whisper.ini`).
+
+### Integration with LobeHub
+
+Point LobeHub at `http://flinker:8081` for the STT endpoint. whisper.cpp
+uses a custom `POST /inference` endpoint (not OpenAI-compatible):
+
+```bash
+curl -X POST http://flinker:8081/inference \
+  -H "Content-Type: multipart/form-data" \
+  -F file="@audio.m4a" \
+  -F language="de"
+```
+
+For OpenAI-compatible clients, a proxy may be needed.
+
 ## Available Presets
 
+### LLM
 - **router** — qwen3.6-35b-a3b + nomic-embed-v1.5 from one process
   (default systemd unit)
 - **qwen3.6-35b-a3b** — Qwen3.6-35B-A3B (38.5 GB, MoE 3B active; chat + embeddings)
@@ -176,6 +308,9 @@ cp ./configs/my-model.ini ~/.config/llama-cpp/
 - **devstral-small-24b** — Devstral-Small-2-24B (28 GB)
 - **gpt-oss-120b** — GPT-OSS-120B (61 GB, F16)
 - **nomic-embed-v1.5** — 768-dim embedding model
+
+### STT
+- **whisper** — whisper.cpp `small` model, German, port 8081
 
 ## Embeddings
 

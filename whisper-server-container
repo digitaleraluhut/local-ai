@@ -1,0 +1,95 @@
+#!/bin/bash
+# Container-side wrapper for whisper.cpp STT server.
+# Reads an INI config and launches whisper-server with the right args.
+#
+# Usage: whisper-server-container <config-name> [extra whisper-server args]
+
+set -e
+
+CONFIG_DIR="${LLAMA_CONFIG_DIR:=${XDG_CONFIG_HOME:=$HOME/.config}/llama-cpp}"
+PRESET_NAME="${1:-}"
+
+if [[ -z "$PRESET_NAME" ]]; then
+    echo "Usage: whisper-server-container <preset-name> [extra args]"
+    echo "Available presets in $CONFIG_DIR:"
+    ls -1 "$CONFIG_DIR"/whisper*.ini 2>/dev/null | xargs -n1 basename -s .ini || echo "  (none)"
+    exit 1
+fi
+
+shift
+
+PRESET_FILE="$CONFIG_DIR/${PRESET_NAME}.ini"
+if [[ ! -f "$PRESET_FILE" ]]; then
+    echo "Error: Preset file not found: $PRESET_FILE"
+    echo "Available:"
+    ls -1 "$CONFIG_DIR"/*.ini 2>/dev/null | xargs -n1 basename -s .ini || echo "  (none)"
+    exit 1
+fi
+
+# Parse INI values (section-agnostic, reads first [section]'s keys)
+parse_ini() {
+    local key="$1"
+    sed -n "/^\[.*\]/,/^\[/p" "$PRESET_FILE" | grep "^${key}\s*=" | tail -1 | cut -d= -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+MODEL="$(parse_ini model)"
+HOST="$(parse_ini host)"
+LANG="$(parse_ini language)"
+THREADS="$(parse_ini threads)"
+PORT="$(parse_ini port)"
+VAD="$(parse_ini vad)"
+TEMP="$(parse_ini temperature)"
+TEMP_INC="$(parse_ini temperature-inc)"
+NO_TIMESTAMPS="$(parse_ini no-timestamps)"
+MAX_SEGMENT="$(parse_ini max-segment-ms)"
+
+if [[ -z "$MODEL" ]]; then
+    echo "Error: 'model' key not found in $PRESET_FILE"
+    exit 1
+fi
+
+# Resolve model path
+# If model is an absolute path, use it directly.
+# Otherwise, look in $HOME/models/whisper/ggml-<model>.bin
+if [[ "$MODEL" == /* ]]; then
+    MODEL_PATH="$MODEL"
+else
+    MODEL_PATH="${HOME}/models/whisper/ggml-${MODEL}.bin"
+fi
+
+if [[ ! -f "$MODEL_PATH" ]]; then
+    echo "Error: Model file not found: $MODEL_PATH"
+    echo "Download it with: ./scripts/download-whisper-model.sh $MODEL"
+    exit 1
+fi
+
+# Build whisper-server command
+WHISPER_CMD=(whisper-server)
+
+# --convert: write uploaded audio to a temp file via ffmpeg before processing.
+# Required for HTTP file uploads to work — without it the server passes raw
+# POST body bytes as a filename string.
+WHISPER_CMD+=(--convert)
+
+[[ -n "$HOST" ]] && WHISPER_CMD+=(--host "$HOST") || WHISPER_CMD+=(--host 0.0.0.0)
+[[ -n "$PORT" ]] && WHISPER_CMD+=(--port "$PORT")
+WHISPER_CMD+=(-m "$MODEL_PATH")
+[[ -n "$LANG" ]]  && WHISPER_CMD+=(--language "$LANG")
+[[ -n "$THREADS" ]] && WHISPER_CMD+=(-t "$THREADS")
+
+if [[ "$VAD" == "true" ]]; then
+    WHISPER_CMD+=(--vad)
+fi
+if [[ "$NO_TIMESTAMPS" == "true" ]]; then
+    WHISPER_CMD+=(--no-timestamps)
+fi
+
+# Append any extra CLI args (override INI values)
+WHISPER_CMD+=("$@")
+
+echo "Starting whisper-server with preset: $PRESET_NAME"
+echo "Model: $MODEL"
+echo "Command: ${WHISPER_CMD[*]}"
+echo ""
+
+exec "${WHISPER_CMD[@]}"

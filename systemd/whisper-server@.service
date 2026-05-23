@@ -1,0 +1,19 @@
+[Unit]
+Description=whisper.cpp STT server - %i (ROCm)
+After=default.target
+
+[Service]
+Type=exec
+ExecStart=/home/jaegle/local-llm/whisper-server %i
+
+# whisper-server runs inside the distrobox container. Signal the
+# in-container process by its model path; ExecStopPost cleans up leftovers.
+ExecStop=-/usr/bin/pkill --signal SIGTERM -f "whisper-server.*-m "
+ExecStopPost=-/usr/bin/pkill --signal SIGKILL -f "whisper-server.*-m "
+TimeoutStopSec=20
+
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
