@@ -1,7 +1,7 @@
 {
   "1": {
     "inputs": {
-      "unet_name": "flux1-schnell-Q4_K_S.gguf"
+      "unet_name": "flux1-dev-Q4_K_S.gguf"
     },
     "class_type": "UnetLoaderGGUF",
     "_meta": {
@@ -30,8 +30,8 @@
   },
   "4": {
     "inputs": {
-      "width": 1344,
-      "height": 896,
+      "width": 1024,
+      "height": 1024,
       "batch_size": 1
     },
     "class_type": "EmptySD3LatentImage",
@@ -54,8 +54,8 @@
       "model": ["1", 0],
       "max_shift": 1.15,
       "base_shift": 0.5,
-      "width": 1344,
-      "height": 896
+      "width": 1024,
+      "height": 1024
     },
     "class_type": "ModelSamplingFlux",
     "_meta": {
@@ -107,7 +107,7 @@
     "inputs": {
       "model": ["6", 0],
       "scheduler": "normal",
-      "steps": 4,
+      "steps": 20,
       "denoise": 1.0
     },
     "class_type": "BasicScheduler",
@@ -127,7 +127,7 @@
   },
   "13": {
     "inputs": {
-      "filename_prefix": "flux-schnell-3-2",
+      "filename_prefix": "flux-dev",
       "images": ["12", 0]
     },
     "class_type": "SaveImage",

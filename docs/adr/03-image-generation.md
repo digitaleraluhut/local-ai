@@ -1,4 +1,4 @@
-# ADR 0003: Local Image Generation via ComfyUI + FLUX Schnell GGUF
+# ADR 0003: Local Image Generation via ComfyUI + FLUX Dev GGUF
 
 ## Status
 
@@ -29,7 +29,7 @@ Adding local image generation enables fully offline, private agent workflows whe
 
 ## Decision
 
-We will add local image generation using **ComfyUI** with the **ComfyUI-GGUF** custom node, running **FLUX.1 [schnell] Q4_K_S GGUF** as the diffusion model, exposed through a **custom Python FastAPI bridge** that translates OpenAI-compatible requests to ComfyUI workflow JSONs.
+We will add local image generation using **ComfyUI** with the **ComfyUI-GGUF** custom node, running **FLUX.1 [dev] Q4_K_S GGUF** as the diffusion model, exposed through a **custom Python FastAPI bridge** that translates OpenAI-compatible requests to ComfyUI workflow JSONs.
 
 The service follows the existing stack patterns:
 - **Host wrapper**: `comfyui-server` (lazy distrobox creation, config sync)
@@ -38,12 +38,13 @@ The service follows the existing stack patterns:
 
 ### Component Choices
 
-**1. Model: FLUX.1 [schnell] Q4_K_S GGUF**
-- Apache 2.0 license (unlike FLUX dev which is non-commercial)
-- Best speed/quality tradeoff: 1–4 sampling steps, high quality output
+**1. Model: FLUX.1 [dev] Q4_K_S GGUF**
+- Non-commercial license (acceptable for this purely local, personal stack)
+- Best absolute quality among open FLUX models: 20–50 sampling steps, superior detail and coherence
 - Transformer/DiT architecture handles quantization gracefully
 - ~6.8 GB UNet + ~5 GB T5 + ~3 GB VAE/CLIP = **~14–16 GB total**, fitting alongside 35B LLM
 - Excellent text-in-image rendering
+- Same RAM footprint as schnell but significantly higher quality
 
 **2. Backend: ComfyUI + ComfyUI-GGUF**
 - Only mature backend with native GGUF support for FLUX models
@@ -69,9 +70,9 @@ The service follows the existing stack patterns:
 - ~30 second cold start if manually stopped and restarted later
 
 **6. Aspect Ratios: Pre-built workflow templates**
-- `flux-schnell.json` → 1024×1024 (1:1)
-- `flux-schnell-3-2.json` → 1344×896 (3:2 landscape)
-- `flux-schnell-2-3.json` → 896×1344 (2:3 portrait)
+- `flux-dev.json` → 1024×1024 (1:1)
+- `flux-dev-3-2.json` → 1344×896 (3:2 landscape)
+- `flux-dev-2-3.json` → 896×1344 (2:3 portrait)
 - OpenAI `size` parameter selects the appropriate template
 
 ## Consequences
@@ -82,7 +83,7 @@ The service follows the existing stack patterns:
 - Full privacy — no images or prompts leave the local network
 - Fits within existing RAM budget when LLM router only loads the ~35B model
 - Follows established stack patterns (distrobox, systemd templates, INI/JSON presets)
-- Apache 2.0 license on the model means no commercial usage restrictions
+- Non-commercial license is acceptable for this purely local, personal stack
 - Quantized GGUF models keep disk and RAM footprint reasonable
 - Multiple aspect ratios support common use cases (thumbnails, portraits, landscapes)
 
@@ -106,8 +107,8 @@ The service follows the existing stack patterns:
 
 | Model | Size (Q4) | Steps | License | Pros | Cons |
 |-------|-----------|-------|---------|------|------|
-| **FLUX.1 [schnell] GGUF** | ~14–16 GB total | 1–4 | **Apache 2.0** | Best speed/quality; excellent text; fits RAM | Not quite FLUX dev quality |
-| FLUX.1 [dev] GGUF | ~14–16 GB total | 20–50 | Non-commercial | Absolute best quality | License restriction; much slower |
+| FLUX.1 [schnell] GGUF | ~14–16 GB total | 1–4 | Apache 2.0 | Fastest; good quality | Not quite FLUX dev quality |
+| **FLUX.1 [dev] GGUF** | ~14–16 GB total | 20–50 | **Non-commercial** | **Absolute best quality**; excellent text; fits RAM | Slower (~2–3 min on GPU); license restricts commercial use |
 | SD3.5 Large GGUF | ~10 GB total | 20–50 | Stability AI community | Smaller footprint | Text rendering weaker; community prefers FLUX |
 | SD3.5 Large Turbo GGUF | ~10 GB total | 4–8 | Stability AI community | Faster SD3.5 variant | Outclassed by FLUX schnell |
 | SDXL + Lightning | ~6–7 GB | 4 | Various | Very fast sketches | Lower quality; no GGUF; more complex |
@@ -146,5 +147,5 @@ The service follows the existing stack patterns:
 ## Related
 
 - `city96/ComfyUI-GGUF` — GGUF quantization support for ComfyUI
-- `city96/FLUX.1-schnell-gguf` — Pre-quantized model files
+- `city96/FLUX.1-dev-gguf` — Pre-quantized model files
 - Existing stack patterns: `llama-server`, `whisper-server`, `systemd/*.service`

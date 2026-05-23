@@ -161,9 +161,9 @@ def list_models():
         content={
             "object": "list",
             "data": [
-                {"id": "flux-schnell", "object": "model"},
-                {"id": "flux-schnell-3-2", "object": "model"},
-                {"id": "flux-schnell-2-3", "object": "model"},
+                {"id": "flux-dev", "object": "model"},
+                {"id": "flux-dev-3-2", "object": "model"},
+                {"id": "flux-dev-2-3", "object": "model"},
             ],
         }
     )
