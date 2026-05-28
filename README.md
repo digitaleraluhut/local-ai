@@ -10,6 +10,23 @@ The goal is to provide a simple, reproducible way to:
 - Save working configurations for future reference
 - Support multiple GPU backends via containerized environments
 
+## Security & Sensitive Data
+
+Model paths are kept out of the repo. All `configs/*.ini` files use `/path/to/models/` as a placeholder. At launch, `llama-server-container` substitutes it with `$MODELS_DIR` before passing the preset to llama-server — the original files are never modified.
+
+### Local setup on a new machine
+
+```bash
+git clone https://github.com/digitaleraluhut/local-ai.git
+cd local-ai
+
+# Point to your model directory (default: ~/models)
+export MODELS_DIR=~/models   # add to ~/.bashrc to make permanent
+
+# Launch a model
+rocm-llama qwen3-coder-30b
+```
+
 ## Prerequisites
 
 ### Ubuntu + Distrobox
