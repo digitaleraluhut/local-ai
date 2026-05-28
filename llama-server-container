@@ -27,6 +27,15 @@ if [[ ! -f "$PRESET_FILE" ]]; then
     exit 1
 fi
 
+# Substitute MODELS_DIR into a temp copy of the preset so the ini files
+# stay path-agnostic in the repo. Set MODELS_DIR before launching, e.g.:
+#   export MODELS_DIR=~/models
+# Defaults to ~/models if unset.
+MODELS_DIR="${MODELS_DIR:-$HOME/models}"
+PRESET_FILE_RESOLVED="$(mktemp --suffix=.ini)"
+trap 'rm -f "$PRESET_FILE_RESOLVED"' EXIT
+sed "s|/path/to/models|${MODELS_DIR}|g" "$PRESET_FILE" > "$PRESET_FILE_RESOLVED"
+
 # ROCm env vars for Strix Halo unified memory.
 # Note: do NOT set HSA_OVERRIDE_GFX_VERSION — kyuz0 images compile natively for gfx1151.
 if [[ -d /opt/rocm ]]; then
@@ -37,13 +46,13 @@ fi
 
 LLAMA_CMD=(
     llama-server
-    --models-preset "$PRESET_FILE"
+    --models-preset "$PRESET_FILE_RESOLVED"
     --no-models-autoload
     "$@"
 )
 
 echo "Starting llama.cpp router with preset: $PRESET_NAME"
-echo "Preset file: $PRESET_FILE"
+echo "Preset file: $PRESET_FILE (MODELS_DIR=$MODELS_DIR)"
 echo "Command: ${LLAMA_CMD[*]}"
 echo ""
 

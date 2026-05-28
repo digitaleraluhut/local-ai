@@ -116,12 +116,18 @@ sections you defined with `load-on-startup = true` come up.
 ### Environment Variables
 
 ```bash
+# Path to your local model files — substituted into all .ini presets at launch.
+# Defaults to ~/models if unset.
+export MODELS_DIR=~/models
+
 # Use custom preset directory
 LLAMA_CONFIG_DIR=~/.config/model-configs rocm-llama qwen3-coder-30b --port 8000
 
 # Or set permanently
 export LLAMA_CONFIG_DIR=~/.config/model-configs
 ```
+
+Model paths in `configs/*.ini` use `/path/to/models/` as a placeholder. At launch, `llama-server-container` replaces that prefix with `$MODELS_DIR` in a temporary copy of the preset before passing it to llama-server. The original `.ini` files are never modified.
 
 ## Script Architecture
 
