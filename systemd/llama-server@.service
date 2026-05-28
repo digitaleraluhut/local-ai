@@ -4,7 +4,7 @@ After=default.target
 
 [Service]
 Type=exec
-ExecStart=%h/local-llm/llama-server rocm %i
+ExecStart=%h/local-ai/llama-server rocm %i
 
 # The router parent and its model children run inside the distrobox
 # container's cgroup, not this unit's, so KillMode= can't reach them.

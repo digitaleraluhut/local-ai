@@ -4,7 +4,7 @@ After=default.target
 
 [Service]
 Type=exec
-ExecStart=%h/local-llm/whisper-server %i
+ExecStart=%h/local-ai/whisper-server %i
 
 # whisper-server runs inside the distrobox container. Signal the
 # in-container process by its model path; ExecStopPost cleans up leftovers.
