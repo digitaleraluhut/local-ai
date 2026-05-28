@@ -1,5 +1,7 @@
 # Local LLM Server - Easy Model Experiments with llama.cpp
 
+> Part of [digitaleraluhut](https://github.com/digitaleraluhut) — the AI layer. Provides LLM, STT, and image generation endpoints consumed by apps in [homelab-apps](https://github.com/digitaleraluhut/homelab-apps) (e.g. LobeHub, Matrix transcription bot). Runs on the same machine as the [homelab](https://github.com/digitaleraluhut/homelab) cluster.
+
 This repository makes it easy to launch and experiment with different LLM models in [llama.cpp](https://github.com/ggml-org/llama.cpp) across different GPU backends (ROCm, Vulkan), with support for saving experiment configurations for reproducibility.
 
 ## Overview
