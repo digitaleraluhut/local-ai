@@ -10,7 +10,7 @@
 set -e
 
 MODEL="${1:-small}"
-TARGET_DIR="${2:-/home/jaegle/models/whisper}"
+TARGET_DIR="${2:-${HOME}/models/whisper}"
 
 # whisper.cpp model download base URL
 BASE_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main"

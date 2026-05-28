@@ -4,7 +4,7 @@ After=default.target
 
 [Service]
 Type=exec
-ExecStart=/home/jaegle/local-llm/comfyui-server %i
+ExecStart=%h/local-llm/comfyui-server %i
 
 # ComfyUI and the bridge run inside the distrobox container's cgroup,
 # not this unit's, so KillMode= can't reach them.

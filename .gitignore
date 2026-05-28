@@ -1,0 +1,14 @@
+# Model files
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.pth
+models/
+
+# Logs
+*.log
+
+# Environment
+.env
+*.env

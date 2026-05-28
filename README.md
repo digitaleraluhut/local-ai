@@ -256,7 +256,7 @@ whisper-server whisper --port 8081
 # Or directly
 distrobox enter rocm-llama-whisper -- whisper-server \
   --host 0.0.0.0 --port 8081 \
-  -m /home/jaegle/models/whisper/ggml-small.bin \
+  -m ~/models/whisper/ggml-small.bin \
   --language de -t 4
 ```
 
@@ -285,11 +285,11 @@ The instance name matches the INI basename (`whisper` → `whisper.ini`).
 
 ### Integration with LobeHub
 
-Point LobeHub at `http://flinker:8081` for the STT endpoint. whisper.cpp
+Point LobeHub at `http://<your-server>:8081` for the STT endpoint. whisper.cpp
 uses a custom `POST /inference` endpoint (not OpenAI-compatible):
 
 ```bash
-curl -X POST http://flinker:8081/inference \
+curl -X POST http://<your-server>:8081/inference \
   -H "Content-Type: multipart/form-data" \
   -F file="@audio.m4a" \
   -F language="de"
@@ -392,7 +392,7 @@ The instance name matches the workflow preset basename (`flux-dev` → `configs/
 
 ### Integration with LobeHub
 
-Point LobeHub at `http://flinker:8082` for the image generation endpoint. The bridge exposes `POST /v1/images/generations` and `GET /v1/models` in OpenAI format.
+Point LobeHub at `http://<your-server>:8082` for the image generation endpoint. The bridge exposes `POST /v1/images/generations` and `GET /v1/models` in OpenAI format.
 
 ## Available Presets
 
