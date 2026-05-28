@@ -27,13 +27,15 @@ if [[ ! -f "$PRESET_FILE" ]]; then
     exit 1
 fi
 
-# Substitute MODELS_DIR into a temp copy of the preset so the ini files
+# Substitute MODELS_DIR into a resolved copy of the preset so the ini files
 # stay path-agnostic in the repo. Set MODELS_DIR before launching, e.g.:
 #   export MODELS_DIR=~/models
 # Defaults to ~/models if unset.
+# The resolved file keeps the same name so ExecStop pkill patterns still match.
 MODELS_DIR="${MODELS_DIR:-$HOME/models}"
-PRESET_FILE_RESOLVED="$(mktemp --suffix=.ini)"
-trap 'rm -f "$PRESET_FILE_RESOLVED"' EXIT
+RESOLVED_DIR="${XDG_RUNTIME_DIR:-/tmp}/llama-resolved"
+mkdir -p "$RESOLVED_DIR"
+PRESET_FILE_RESOLVED="$RESOLVED_DIR/${PRESET_NAME}.ini"
 sed "s|/path/to/models|${MODELS_DIR}|g" "$PRESET_FILE" > "$PRESET_FILE_RESOLVED"
 
 # ROCm env vars for Strix Halo unified memory.
