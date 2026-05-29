@@ -58,12 +58,22 @@ PYTHON="${COMFYUI_PYTHON:-python3}"
 VENV_SITE="/opt/venv/lib/python3.12/site-packages"
 export PYTHONPATH="${VENV_SITE}:${PYTHONPATH}"
 
+# Point ComfyUI at the central model store via extra_model_paths.yaml if present
+# (synced in by the host wrapper). Avoids per-file symlinks under ComfyUI/models.
+EXTRA_PATHS_ARG=()
+EXTRA_PATHS_FILE="$CONFIG_DIR/extra_model_paths.yaml"
+if [[ -f "$EXTRA_PATHS_FILE" ]]; then
+    EXTRA_PATHS_ARG=(--extra-model-paths-config "$EXTRA_PATHS_FILE")
+    echo "Model paths: $EXTRA_PATHS_FILE"
+fi
+
 # Start ComfyUI in the background
 cd "$COMFYUI_DIR"
 $PYTHON main.py \
     --listen 0.0.0.0 \
     --port "$COMFYUI_PORT" \
     --disable-xformers \
+    "${EXTRA_PATHS_ARG[@]}" \
     "$@" &
 
 COMFYUI_PID=$!

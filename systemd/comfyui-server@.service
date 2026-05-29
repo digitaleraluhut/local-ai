@@ -10,9 +10,9 @@ ExecStart=%h/local-ai/comfyui-server %i
 # not this unit's, so KillMode= can't reach them.
 # Signal the in-container ComfyUI python process and bridge by matching
 # their command lines. ExecStopPost SIGKILLs anything left.
-ExecStop=-/usr/bin/pkill --signal SIGTERM -f "python main.py.*--port.*8188"
+ExecStop=-/usr/bin/pkill --signal SIGTERM -f "python3? main.py.*--port.*8188"
 ExecStop=-/usr/bin/pkill --signal SIGTERM -f "comfyui-bridge.py"
-ExecStopPost=-/usr/bin/pkill --signal SIGKILL -f "python main.py.*--port.*8188"
+ExecStopPost=-/usr/bin/pkill --signal SIGKILL -f "python3? main.py.*--port.*8188"
 ExecStopPost=-/usr/bin/pkill --signal SIGKILL -f "comfyui-bridge.py"
 TimeoutStopSec=30
 

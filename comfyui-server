@@ -55,6 +55,16 @@ for json in "$CONFIG_DIR"/comfyui/workflows/*.json; do
     cat "$json" | distrobox enter "$CONTAINER_NAME" -- bash -c "mkdir -p ~/.config/comfyui/workflows && cat > ~/.config/comfyui/workflows/$(basename "$json")" 2>/dev/null || true
 done
 
+# Sync extra_model_paths.yaml so ComfyUI reads the central model store directly.
+# Substitute the /path/to/models placeholder with $MODELS_DIR (same convention as
+# the llama-server presets) so the repo file stays path-agnostic.
+MODELS_DIR="${MODELS_DIR:-$HOME/models}"
+EXTRA_PATHS_FILE="$CONFIG_DIR/comfyui/extra_model_paths.yaml"
+if [[ -f "$EXTRA_PATHS_FILE" ]]; then
+    sed "s|/path/to/models|${MODELS_DIR}|g" "$EXTRA_PATHS_FILE" \
+        | distrobox enter "$CONTAINER_NAME" -- bash -c "mkdir -p ~/.config/comfyui && cat > ~/.config/comfyui/extra_model_paths.yaml" 2>/dev/null || true
+fi
+
 # Sync container wrapper into container
 CONTAINER_WRAPPER="$SCRIPT_DIR/comfyui-server-container"
 if [[ -f "$CONTAINER_WRAPPER" ]]; then

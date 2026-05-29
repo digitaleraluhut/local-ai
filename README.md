@@ -354,7 +354,11 @@ Download the FLUX dev model (~16 GB total):
 | CLIP-L encoder | `clip_l.safetensors` | ~250 MB |
 | VAE | `ae.safetensors` | ~320 MB |
 
-Models are cached in `~/models/comfyui/`.
+Models are cached in `~/models/comfyui/{unet,clip,vae}`. ComfyUI reads this central
+store directly via `configs/comfyui/extra_model_paths.yaml` (synced into the container
+and passed with `--extra-model-paths-config`), so any model dropped there is picked up
+automatically — no per-file symlinks under `~/ComfyUI/models`. The `/path/to/models`
+placeholder in that file is substituted with `$MODELS_DIR` at launch, like the llama presets.
 
 ### Presets
 

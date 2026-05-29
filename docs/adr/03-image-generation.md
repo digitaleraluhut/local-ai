@@ -2,7 +2,7 @@
 
 ## Status
 
-**Proposed**
+**Accepted** — implemented and verified on `flinker` (ComfyUI 0.22.0). `flux1-dev-Q4_K_S.gguf` loads and generates end-to-end via the `flux-dev` preset. `flux1-schnell-Q4_K_S.gguf` remains installed alongside it as a fast Apache-licensed alternative.
 
 ## Context
 
@@ -58,6 +58,12 @@ The service follows the existing stack patterns:
 - Submits to ComfyUI `/prompt`, polls `/history`, returns OpenAI-format response
 - No external Rust dependency (unlike `Comfyui2Openai` which is unmaintained and would require Rust toolchain)
 - Full control over ComfyUI-GGUF-specific node mappings
+
+**3b. Model Storage: Central store via `extra_model_paths.yaml`**
+- All weights live in the central store `~/models/comfyui/{unet,clip,vae}` (written by `scripts/download-flux-models.sh`), consistent with the stack's `$MODELS_DIR` convention.
+- ComfyUI is pointed at that store with `configs/comfyui/extra_model_paths.yaml` (`base_path: ~/models/comfyui`, `is_default: true`), passed via `--extra-model-paths-config`.
+- The host wrapper substitutes `/path/to/models` → `$MODELS_DIR` at launch (same convention as the llama presets) and syncs the file into the container.
+- **No per-file symlinks** under `~/ComfyUI/models`: any model dropped in the central store is visible automatically, so new GGUF variants need no extra wiring.
 
 **4. Bridge Location: Inside the distrobox**
 - Single systemd unit lifecycle: `systemctl start` brings up both ComfyUI and bridge

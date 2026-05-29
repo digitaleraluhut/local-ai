@@ -1,0 +1,21 @@
+# ComfyUI model path config — points ComfyUI at the central model store
+# (~/models/comfyui) instead of its own ~/ComfyUI/models tree, so every model
+# placed by scripts/download-flux-models.sh is visible without per-file symlinks.
+#
+# The base_path placeholder below is substituted with $MODELS_DIR at launch by
+# the comfyui-server host wrapper (same convention as the llama-server presets),
+# keeping this file path-agnostic in the repo.
+
+comfyui:
+  base_path: /path/to/models/comfyui
+  is_default: true
+  # FLUX GGUF UNets (UnetLoaderGGUF scans both folders)
+  diffusion_models: |
+    unet
+    diffusion_models
+  unet: unet
+  # T5 / CLIP encoders (DualCLIPLoader)
+  text_encoders: |
+    clip
+  clip: clip
+  vae: vae
