@@ -2,7 +2,7 @@
 
 ## Status
 
-**Accepted** — implemented and verified on `flinker` (ComfyUI 0.22.0). `flux1-dev-Q4_K_S.gguf` loads and generates end-to-end via the `flux-dev` preset. `flux1-schnell-Q4_K_S.gguf` remains installed alongside it as a fast Apache-licensed alternative.
+**Accepted**
 
 ## Context
 
@@ -58,12 +58,6 @@ The service follows the existing stack patterns:
 - Submits to ComfyUI `/prompt`, polls `/history`, returns OpenAI-format response
 - No external Rust dependency (unlike `Comfyui2Openai` which is unmaintained and would require Rust toolchain)
 - Full control over ComfyUI-GGUF-specific node mappings
-
-**3b. Model Storage: Central store via `extra_model_paths.yaml`**
-- All weights live in the central store `~/models/comfyui/{unet,clip,vae}` (written by `scripts/download-flux-models.sh`), consistent with the stack's `$MODELS_DIR` convention.
-- ComfyUI is pointed at that store with `configs/comfyui/extra_model_paths.yaml` (`base_path: ~/models/comfyui`, `is_default: true`), passed via `--extra-model-paths-config`.
-- The host wrapper substitutes `/path/to/models` → `$MODELS_DIR` at launch (same convention as the llama presets) and syncs the file into the container.
-- **No per-file symlinks** under `~/ComfyUI/models`: any model dropped in the central store is visible automatically, so new GGUF variants need no extra wiring.
 
 **4. Bridge Location: Inside the distrobox**
 - Single systemd unit lifecycle: `systemctl start` brings up both ComfyUI and bridge
@@ -157,3 +151,34 @@ The service follows the existing stack patterns:
 - `city96/ComfyUI-GGUF` — GGUF quantization support for ComfyUI
 - `city96/FLUX.1-dev-gguf` — Pre-quantized model files
 - Existing stack patterns: `llama-server`, `whisper-server`, `systemd/*.service`
+
+## Implementation Notes (2026-05-29)
+
+### Models installed
+Both FLUX.1 variants are installed as Q4_K_S GGUF files (verified via `GET /object_info/UnetLoaderGGUF`):
+- `flux1-dev-Q4_K_S.gguf` — primary model (ADR target); 20–50 steps, best quality
+- `flux1-schnell-Q4_K_S.gguf` — fast alternative; 1–4 steps, ~15 s/image; Apache 2.0
+
+Quantization is transparent to consumers — LobeHub and the OpenAI bridge submit prompts and receive images; the `.gguf` filename is only referenced inside ComfyUI workflow JSON templates via the `UnetLoaderGGUF` node.
+
+### LobeHub integration: OpenAI bridge workaround (current)
+
+**Intended integration**: LobeHub has a built-in ComfyUI provider that speaks ComfyUI's native WebSocket + REST API directly via `COMFYUI_BASE_URL=http://flinker:8188`. This is the long-term target.
+
+**Current workaround**: The native ComfyUI provider is blocked by an upstream bug in `packages/model-runtime`: `LobeComfyUI.createImage()` calls `${APP_URL}/webapi/create-image/comfyui` using `process.env.APP_URL`, which is the public HTTPS domain (`https://lobehub.no-panic.org`). The request goes through Traefik → oauth2-proxy and is blocked with an HTML redirect before Next.js can validate the internal bearer token. `INTERNAL_APP_URL` is not read by `LobeComfyUI` — it only reads `APP_URL`. Setting `APP_URL=localhost` fixes the loopback but breaks Better Auth OAuth callbacks (which require the public domain as `baseURL` for GitHub redirect URIs).
+
+**Workaround**: Use the OpenAI bridge (`:8082`) via LobeHub's **Xinference provider slot** instead. `xinference` uses `createOpenAICompatibleRuntime` which calls `POST /v1/images/generations` directly on the configured `baseURL` — no `APP_URL` loopback involved. The async task worker calls `http://flinker:8082/v1` directly from within the pod.
+
+Wired via `homelab-apps` Pulumi stack:
+- `lobehub:enableImageGen = true` — opt-in flag
+- `lobehub:flinkerImageUrl = http://flinker:8082/v1` — xinference proxy URL
+- Injects: `XINFERENCE_API_KEY=not-needed`, `XINFERENCE_PROXY_URL`, `XINFERENCE_MODEL_LIST=flux-dev`
+
+**Bridge fix required**: The bridge's default `response_format` changed from `"url"` to `"b64_json"` to avoid returning `http://127.0.0.1:8188/view?...` URLs that are only reachable locally on flinker. The bridge always fetches image bytes internally anyway, so base64 inline is strictly better for remote callers.
+
+**Migration path**: When upstream LobeHub adds `INTERNAL_APP_URL` support to `LobeComfyUI.createImage()` (reading `process.env.INTERNAL_APP_URL || process.env.APP_URL`), switch back to:
+- `lobehub:enableComfyUI = true` + `lobehub:comfyuiUrl = http://flinker:8188`
+- Remove `enableImageGen` / `flinkerImageUrl` config
+- The native ComfyUI provider gives richer workflow control (steps, CFG, seeds, etc.)
+
+The FastAPI OpenAI bridge (`:8082`) remains in place for other consumers (CLI tools, other agents) regardless of which LobeHub integration is active.

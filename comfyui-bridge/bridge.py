@@ -8,6 +8,13 @@ Environment variables:
   COMFYUI_HOST    - ComfyUI host (default: 127.0.0.1)
   COMFYUI_PORT    - ComfyUI port (default: 8188)
   BRIDGE_PORT     - Port for this bridge (default: 8082)
+
+Response format:
+  The bridge always fetches image bytes from ComfyUI internally after generation.
+  Default response_format is "b64_json" — the image data is already in memory, so
+  returning it inline avoids exposing a ComfyUI-internal URL (127.0.0.1:8188) to
+  callers that cannot reach ComfyUI directly (e.g. a pod in another k8s namespace).
+  Pass response_format="url" only when the caller can reach COMFYUI_HOST directly.
 """
 
 import json
@@ -35,7 +42,9 @@ class ImageGenerationRequest(BaseModel):
     prompt: str = ""
     n: int = 1
     size: str = "1024x1024"
-    response_format: str = "url"
+    # Default to b64_json: the bridge fetches image bytes from ComfyUI internally anyway,
+    # so returning them inline avoids leaking a 127.0.0.1 URL that remote callers can't reach.
+    response_format: str = "b64_json"
     seed: int | None = None
 
 
