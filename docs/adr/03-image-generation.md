@@ -182,3 +182,13 @@ Wired via `homelab-apps` Pulumi stack:
 - The native ComfyUI provider gives richer workflow control (steps, CFG, seeds, etc.)
 
 The FastAPI OpenAI bridge (`:8082`) remains in place for other consumers (CLI tools, other agents) regardless of which LobeHub integration is active.
+
+### MinIO S3 storage
+
+Generated images are uploaded server-side to in-cluster **MinIO** (Longhorn-backed 20 Gi PVC). MinIO is exposed:
+- Internally: `http://minio:9000` — used by LobeHub for S3 API calls (`S3_ENDPOINT`)
+- Publicly: `https://minio.no-panic.org` — used as `S3_PUBLIC_DOMAIN` so presigned URLs in browser `/f/:id` redirects resolve
+
+**Critical**: The MinIO `IngressRoute` must use `entryPoints: [web]` (port 80), not `websecure`. The Cloudflare tunnel forwards plain HTTP to Traefik's `web` entrypoint (port 80); Cloudflare handles TLS termination externally. Using `websecure` causes Traefik to return 404 because the tunnel never sends traffic there.
+
+**Critical**: The MinIO pod's `template.metadata.labels` must NOT include `app: lobehub`. The lobehub `Service` selector is `app=lobehub`; if the MinIO pod carries that label, ~50% of LobeHub requests are load-balanced to MinIO (wrong port 9000) → 502 Bad Gateway. Use `component: minio` only in the pod template.
