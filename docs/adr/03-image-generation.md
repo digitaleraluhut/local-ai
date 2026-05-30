@@ -183,15 +183,9 @@ Wired via `homelab-apps` Pulumi stack:
 
 The FastAPI OpenAI bridge (`:8082`) remains in place for other consumers (CLI tools, other agents) regardless of which LobeHub integration is active.
 
-### MinIO S3 storage
+### S3 storage
 
-Generated images are uploaded server-side to in-cluster **MinIO** (Longhorn-backed 20 Gi PVC). MinIO is exposed:
-- Internally: `http://minio:9000` — used by LobeHub for S3 API calls (`S3_ENDPOINT`)
-- Publicly: `https://minio.no-panic.org` — used as `S3_PUBLIC_DOMAIN` so presigned URLs in browser `/f/:id` redirects resolve
-
-**Critical**: The MinIO `IngressRoute` must use `entryPoints: [web]` (port 80), not `websecure`. The Cloudflare tunnel forwards plain HTTP to Traefik's `web` entrypoint (port 80); Cloudflare handles TLS termination externally. Using `websecure` causes Traefik to return 404 because the tunnel never sends traffic there.
-
-**Critical**: The MinIO pod's `template.metadata.labels` must NOT include `app: lobehub`. The lobehub `Service` selector is `app=lobehub`; if the MinIO pod carries that label, ~50% of LobeHub requests are load-balanced to MinIO (wrong port 9000) → 502 Bad Gateway. Use `component: minio` only in the pod template.
+Generated images are uploaded server-side to **Cloudflare R2** (`s3Endpoint` in Pulumi config). R2 uses virtual-hosted-style URLs (no `S3_ENABLE_PATH_STYLE` needed) and presigned URLs resolve via Cloudflare's CDN directly — no `S3_PUBLIC_DOMAIN` override required. Credentials (`s3AccessKeyId` / `s3SecretAccessKey`) are stored as Pulumi secrets and can be regenerated via R2 → Manage R2 API Tokens in the Cloudflare dashboard.
 
 **Critical**: `S3_ENDPOINT` must be the **public** MinIO URL (`https://minio.<domain>`), not the cluster-internal address (`http://minio:9000`). LobeHub's `/f/:id` route generates presigned URLs using the AWS S3 SDK configured with `S3_ENDPOINT`, then 302-redirects the browser to them. If the endpoint is cluster-internal, the browser gets `ERR_NAME_NOT_RESOLVED`. There is no separate "internal vs public" endpoint in LobeHub's S3 client — `S3_PUBLIC_DOMAIN` is not a real LobeHub env var.
 
