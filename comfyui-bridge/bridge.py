@@ -125,6 +125,7 @@ def generate_images(req: ImageGenerationRequest):
     # Resolve dimensions: explicit width/height fields take priority over the combined
     # size string.  LobeHub sends width+height as separate integers; the size string
     # is the fallback for callers that use the classic OpenAI "1024x1024" format.
+    print(f"[bridge] request: model={req.model!r} size={req.size!r} width={req.width!r} height={req.height!r}", flush=True)
     if req.width is not None and req.height is not None:
         width, height = req.width, req.height
     else:
@@ -132,6 +133,7 @@ def generate_images(req: ImageGenerationRequest):
             width, height = map(int, req.size.split("x"))
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid size format: {req.size}")
+    print(f"[bridge] resolved dimensions: {width}x{height}", flush=True)
 
     seed = req.seed if req.seed is not None else random.randint(0, 2**32 - 1)
 
