@@ -42,6 +42,11 @@ class ImageGenerationRequest(BaseModel):
     prompt: str = ""
     n: int = 1
     size: str = "1024x1024"
+    # LobeHub (and other OpenAI-compatible callers) may send width/height as separate
+    # integer fields instead of the combined "WxH" size string.  When present they take
+    # priority over the size field so that aspect-ratio requests are honoured correctly.
+    width: int | None = None
+    height: int | None = None
     # Default to b64_json: the bridge fetches image bytes from ComfyUI internally anyway,
     # so returning them inline avoids leaking a 127.0.0.1 URL that remote callers can't reach.
     response_format: str = "b64_json"
@@ -70,6 +75,13 @@ def inject_prompt(workflow: dict, prompt: str, width: int, height: int, seed: in
 
         # Inject dimensions into latent image node
         if class_type in ("EmptyLatentImage", "EmptySD3LatentImage", "EmptyFlux2LatentImage"):
+            inputs["width"] = width
+            inputs["height"] = height
+
+        # Inject dimensions into ModelSamplingFlux — this node also takes width/height
+        # to tune the frequency shift for non-square aspect ratios.  Must match the
+        # latent image dimensions or FLUX will generate at the wrong AR.
+        if class_type == "ModelSamplingFlux" and "width" in inputs and "height" in inputs:
             inputs["width"] = width
             inputs["height"] = height
 
@@ -110,11 +122,16 @@ def generate_images(req: ImageGenerationRequest):
     if not WORKFLOW_FILE:
         raise HTTPException(status_code=500, detail="WORKFLOW_FILE not set")
 
-    # Parse size
-    try:
-        width, height = map(int, req.size.split("x"))
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid size format: {req.size}")
+    # Resolve dimensions: explicit width/height fields take priority over the combined
+    # size string.  LobeHub sends width+height as separate integers; the size string
+    # is the fallback for callers that use the classic OpenAI "1024x1024" format.
+    if req.width is not None and req.height is not None:
+        width, height = req.width, req.height
+    else:
+        try:
+            width, height = map(int, req.size.split("x"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid size format: {req.size}")
 
     seed = req.seed if req.seed is not None else random.randint(0, 2**32 - 1)
 
