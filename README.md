@@ -324,7 +324,12 @@ For OpenAI-compatible clients, a proxy may be needed.
 
 ## Image Generation — ComfyUI + FLUX Dev
 
-Local image generation via [ComfyUI](https://github.com/comfyanonymous/ComfyUI) with the [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) custom node, running **FLUX.1 [dev] Q4_K_S GGUF** on ROCm GPU. Exposed through an OpenAI-compatible `/v1/images/generations` endpoint for LobeHub and other agent tools.
+Local image generation via [ComfyUI](https://github.com/comfyanonymous/ComfyUI) with the [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) custom node, running **FLUX.1 [dev] Q4_K_S GGUF** on ROCm GPU. Exposed through:
+
+- An **OpenAI-compatible** `POST /v1/images/generations` endpoint (LobeHub, curl)
+- An **MCP tool** `generate_image` via Streamable HTTP at `http://localhost:8082/mcp` (OpenCode, agent frameworks)
+
+Both run in the same process on `:8082` — one `systemctl start` brings up everything.
 
 > **License note:** FLUX.1 [dev] has a non-commercial license. This is acceptable for purely local, personal use.
 
@@ -364,12 +369,14 @@ placeholder in that file is substituted with `$MODELS_DIR` at launch, like the l
 
 Workflow JSON presets in `configs/comfyui/workflows/`:
 
-| Preset | Size | Steps | Time (GPU) | Quality |
-|--------|------|-------|------------|---------|
+| Preset | Size | Default Steps | Time (GPU) | Quality |
+|--------|------|--------------|------------|---------|
 | `flux-dev` | 1024×1024 | 20 | ~2-3 min | Best |
-| `flux-dev-fast` | 1024×1024 | 8 | ~1 min | Good |
+| `flux-dev-fast` | 1024×1024 | 20 | ~2-3 min | Good (8 for fast preview) |
 | `flux-dev-3-2` | 1344×896 | 20 | ~2-3 min | Best |
 | `flux-dev-2-3` | 896×1344 | 20 | ~2-3 min | Best |
+
+Override steps per-request: `"steps": 8` for a fast preview, `"steps": 30` for highest quality.
 
 ### Setup
 
@@ -380,8 +387,8 @@ Workflow JSON presets in `configs/comfyui/workflows/`:
 # One-time: download models
 ./scripts/download-flux-models.sh
 
-# Start the server
-systemctl --user enable --now comfyui-server@flux-dev
+# Start the server (single instance serves all workflow presets)
+systemctl --user enable --now comfyui-server@comfyui
 ```
 
 ### Usage
@@ -393,31 +400,75 @@ curl http://localhost:8082/v1/images/generations \
   -d '{
     "model": "flux-dev",
     "prompt": "a red apple on a wooden table",
-    "size": "1024x1024",
-    "n": 1
+    "width": 1024,
+    "height": 1024,
+    "steps": 25,
+    "response_format": "url"
   }'
+
+# Stream progress while generating (add Accept: text/event-stream)
+curl http://localhost:8082/v1/images/generations \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -d '{"model": "flux-dev-fast", "prompt": "a red apple"}'
+# Outputs:
+# data: {"type": "progress", "step": 5, "total": 20}
+# data: {"type": "progress", "step": 10, "total": 20}
+# ...
+# data: {"type": "result", "data": [...], "seed": 42, "created": 1234567890}
+
+# Fetch a previously generated image
+curl http://localhost:8082/v1/images/2026-05-31/20260531T142301-a3f7c2d1.png --output out.png
 ```
+
+Generated images are saved to `~/images/generated/YYYY-MM-DD/<timestamp>-<uuid8>.png` and served
+at `GET /v1/images/{date}/{filename}`. Day-folders older than 7 days are cleaned up automatically
+on each generation call (`IMAGE_RETENTION_DAYS` env var to change).
+
+### MCP tool (OpenCode / agent frameworks)
+
+```json
+{
+  "mcpServers": {
+    "comfyui": {
+      "transport": "http",
+      "url": "http://localhost:8082/mcp"
+    }
+  }
+}
+```
+
+The `generate_image(prompt, model, width, height, steps, seed)` tool returns `{url, seed}` for the generated image. The `seed` can be re-used (with different width/height/steps/model/prompt) to reproduce the same motif.
+
+For best quality, pass `steps=25` with `flux-dev`. For fast previews, use `flux-dev-fast` with `steps=12`. All workflows default to `steps=20`.
 
 ### Environment Variables
 
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COMFYUI_CONTAINER` | `comfyui-rocm` | Distrobox container name |
+| `COMFYUI_IMAGE` | `rocm/pytorch:rocm7.2.2_...` | Container base image |
+| `WORKFLOW_DIR` | `~/.config/comfyui/workflows` | Directory of workflow JSON templates |
+| `BRIDGE_BASE_URL` | `http://localhost:8082` | Public base URL for image URLs returned by the MCP tool |
+| `IMAGE_DIR` | `~/images/generated` | Where generated images are stored |
+| `IMAGE_RETENTION_DAYS` | `7` | Days to keep old images before cleanup |
+
 ```bash
 # Use a different base image
-COMFYUI_IMAGE=docker.io/rocm/pytorch:latest ./comfyui-server flux-dev
+COMFYUI_IMAGE=docker.io/rocm/pytorch:latest ./comfyui-server
 
 # Use a different container name
-COMFYUI_CONTAINER=my-comfyui ./comfyui-server flux-dev
+COMFYUI_CONTAINER=my-comfyui ./comfyui-server
 ```
 
 ### Systemd
 
-Same pattern as llama.cpp and whisper:
-
 ```bash
-systemctl --user start comfyui-server@flux-dev
-systemctl --user enable comfyui-server@flux-dev
+systemctl --user start comfyui-server@comfyui
+systemctl --user enable comfyui-server@comfyui
 ```
 
-The instance name matches the workflow preset basename (`flux-dev` → `configs/comfyui/workflows/flux-dev.json`).
+The instance name is arbitrary — a single unit serves all workflow presets.
 
 ### Integration with LobeHub
 
@@ -440,7 +491,7 @@ Point LobeHub at `http://<your-server>:8082` for the image generation endpoint. 
 
 ### Image Generation
 - **flux-dev** — 1024×1024, 20 steps, best quality (~2-3 min)
-- **flux-dev-fast** — 1024×1024, 8 steps, fast preview (~1 min)
+- **flux-dev-fast** — 1024×1024, 20 steps default (use `steps=8` for fast preview)
 - **flux-dev-3-2** — 1344×896 landscape, 20 steps
 - **flux-dev-2-3** — 896×1344 portrait, 20 steps
 
