@@ -12,3 +12,4 @@ models/
 # Environment
 .env
 *.env
+comfyui-bridge/__pycache__/
