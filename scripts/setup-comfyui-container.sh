@@ -69,7 +69,7 @@ fi
 pip3 install --break-system-packages --upgrade gguf
 
 echo "==> Installing bridge dependencies..."
-pip3 install --break-system-packages fastapi uvicorn requests python-multipart
+pip3 install --break-system-packages fastapi "uvicorn[standard]" requests httpx websockets "mcp[cli]" python-multipart
 
 echo ""
 echo "==> Setup complete!"
@@ -81,5 +81,5 @@ EOF
 
 # Copy and execute inside container
 podman cp "$TMP_SCRIPT" "$CONTAINER_NAME:/tmp/setup-comfyui.sh"
-distribox enter "$CONTAINER_NAME" -- bash /tmp/setup-comfyui.sh
+distrobox enter "$CONTAINER_NAME" -- bash /tmp/setup-comfyui.sh
 rm -f "$TMP_SCRIPT"
