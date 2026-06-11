@@ -2,11 +2,19 @@
 # Host-side launcher for ComfyUI image generation server.
 # Uses a dedicated distrobox container with ROCm PyTorch.
 #
-# Usage: comfyui-server [config-name] [extra args]
-#   comfyui-server flux-schnell
-#   comfyui-server flux-schnell --port 8082
+# The bridge serves ALL workflow presets from a single process — no preset
+# argument required. The `model` field in each API request selects the workflow.
 #
-# If no config name is given, lists available presets and exits.
+# Usage: comfyui-server [extra ComfyUI args]
+#   comfyui-server
+#   comfyui-server --lowvram
+#
+# Environment variables:
+#   COMFYUI_CONTAINER   - Distrobox container name (default: comfyui-rocm)
+#   COMFYUI_IMAGE       - Container image (default: rocm/pytorch:rocm7.2.2_...)
+#   LLAMA_CONFIG_DIR    - Config directory on the host (default: ./configs)
+#   MODELS_DIR          - Path to local model files (default: ~/models)
+#   BRIDGE_BASE_URL     - Public base URL returned in image URLs (default: http://localhost:8082)
 
 set -e
 
@@ -15,28 +23,20 @@ CONFIG_DIR="${LLAMA_CONFIG_DIR:=$SCRIPT_DIR/configs}"
 CONTAINER_NAME="${COMFYUI_CONTAINER:-comfyui-rocm}"
 IMAGE="${COMFYUI_IMAGE:-docker.io/rocm/pytorch:rocm7.2.2_ubuntu24.04_py3.12_pytorch_release_2.10.0}"
 
-MODEL_CONFIG="${1:-}"
-
-if [[ -z "$MODEL_CONFIG" ]]; then
-    echo "Usage: comfyui-server <config-name> [extra args]"
-    echo ""
-    echo "Available presets in $CONFIG_DIR/comfyui/workflows/:"
-    ls -1 "$CONFIG_DIR"/comfyui/workflows/*.json 2>/dev/null | while read -r json; do
-        preset_name=$(basename "$json" .json)
-        echo "  - $preset_name"
-    done
-    exit 0
+# The systemd unit passes %i (instance name, e.g. "comfyui") as $1.
+# Consume it silently — it is not a workflow preset, just the unit instance identifier.
+# Only consume it if it doesn't look like a flag (doesn't start with --).
+if [[ -n "${1:-}" && "${1}" != --* ]]; then
+    shift
 fi
 
-shift
-
-WORKFLOW_FILE="$CONFIG_DIR/comfyui/workflows/${MODEL_CONFIG}.json"
-if [[ ! -f "$WORKFLOW_FILE" ]]; then
-    echo "Error: Workflow preset not found: $WORKFLOW_FILE"
-    echo "Available presets:"
-    ls -1 "$CONFIG_DIR"/comfyui/workflows/*.json 2>/dev/null | xargs -n1 basename -s .json
-    exit 1
-fi
+# Show available presets (informational — server starts regardless)
+WORKFLOWS_DIR="$CONFIG_DIR/comfyui/workflows"
+echo "ComfyUI server — available workflow presets in $WORKFLOWS_DIR:"
+ls -1 "$WORKFLOWS_DIR"/*.json 2>/dev/null | while read -r json; do
+    echo "  - $(basename "$json" .json)"
+done || echo "  (none — sync workflows first)"
+echo ""
 
 # Check if container exists, if not create it
 if ! distrobox list | grep -q "| $CONTAINER_NAME"; then
@@ -44,13 +44,13 @@ if ! distrobox list | grep -q "| $CONTAINER_NAME"; then
     distrobox create -n "$CONTAINER_NAME" \
         --image "$IMAGE" \
         --additional-flags "--device /dev/kfd --device /dev/dri --security-opt seccomp=unconfined"
-    
+
     echo "Container created. Run ./scripts/setup-comfyui-container.sh to install ComfyUI inside it."
     exit 1
 fi
 
-# Sync workflow presets into container
-for json in "$CONFIG_DIR"/comfyui/workflows/*.json; do
+# Sync all workflow presets into the container
+for json in "$WORKFLOWS_DIR"/*.json; do
     [[ -f "$json" ]] || continue
     cat "$json" | distrobox enter "$CONTAINER_NAME" -- bash -c "mkdir -p ~/.config/comfyui/workflows && cat > ~/.config/comfyui/workflows/$(basename "$json")" 2>/dev/null || true
 done
@@ -71,11 +71,17 @@ if [[ -f "$CONTAINER_WRAPPER" ]]; then
     cat "$CONTAINER_WRAPPER" | distrobox enter "$CONTAINER_NAME" -- bash -c "mkdir -p ~/.local/bin && cat > ~/.local/bin/comfyui-server-container && chmod +x ~/.local/bin/comfyui-server-container" 2>/dev/null || true
 fi
 
-# Sync bridge script into container
-BRIDGE_SCRIPT="$SCRIPT_DIR/comfyui-bridge/bridge.py"
-if [[ -f "$BRIDGE_SCRIPT" ]]; then
-    cat "$BRIDGE_SCRIPT" | distrobox enter "$CONTAINER_NAME" -- bash -c "mkdir -p ~/.local/bin && cat > ~/.local/bin/comfyui-bridge.py && chmod +x ~/.local/bin/comfyui-bridge.py" 2>/dev/null || true
-fi
+# Sync bridge scripts into container (all Python modules + entry-point stub)
+for _script in bridge.py routes.py mcp_tools.py main.py comfyui-bridge.py; do
+    _src="$SCRIPT_DIR/comfyui-bridge/$_script"
+    if [[ -f "$_src" ]]; then
+        cat "$_src" | distrobox enter "$CONTAINER_NAME" -- bash -c "mkdir -p ~/.local/bin && cat > ~/.local/bin/$_script" 2>/dev/null || true
+    fi
+done
+distrobox enter "$CONTAINER_NAME" -- chmod +x ~/.local/bin/comfyui-bridge.py 2>/dev/null || true
 
-# Launch server via container wrapper
-distrobox enter "$CONTAINER_NAME" -- "\$HOME/.local/bin/comfyui-server-container" "$MODEL_CONFIG" "$@"
+# Launch server via container wrapper (no preset arg — bridge handles all models).
+# Pass HOST_HOSTNAME so the bridge can build correct image URLs using the host
+# machine name rather than the distrobox container name.
+HOST_HOSTNAME="$(hostname)" distrobox enter "$CONTAINER_NAME" -- \
+    env HOST_HOSTNAME="$(hostname)" "\$HOME/.local/bin/comfyui-server-container" "$@"
