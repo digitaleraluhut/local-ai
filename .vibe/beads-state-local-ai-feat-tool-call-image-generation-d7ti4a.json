@@ -1,0 +1,29 @@
+{
+  "conversationId": "local-ai-feat-tool-call-image-generation-d7ti4a",
+  "projectPath": "/Users/oliverjaegle/projects/privat/digitaleraluhut/local-ai",
+  "epicId": "local-ai-1",
+  "phaseTasks": [
+    {
+      "phaseId": "explore",
+      "phaseName": "Explore",
+      "taskId": "local-ai-1.1"
+    },
+    {
+      "phaseId": "plan",
+      "phaseName": "Plan",
+      "taskId": "local-ai-1.2"
+    },
+    {
+      "phaseId": "code",
+      "phaseName": "Code",
+      "taskId": "local-ai-1.3"
+    },
+    {
+      "phaseId": "commit",
+      "phaseName": "Commit",
+      "taskId": "local-ai-1.4"
+    }
+  ],
+  "createdAt": "2026-05-31T08:49:57.091Z",
+  "updatedAt": "2026-05-31T08:49:57.091Z"
+}
