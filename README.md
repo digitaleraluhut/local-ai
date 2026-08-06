@@ -354,7 +354,8 @@ Download the FLUX dev model (~16 GB total):
 
 | Component | File | Size |
 |-----------|------|------|
-| UNet (diffusion) | `flux1-dev-Q4_K_S.gguf` | ~6.8 GB |
+| UNet (diffusion) — GGUF (bridge/MCP) | `flux1-dev-Q4_K_S.gguf` | ~6.8 GB |
+| UNet (diffusion) — fp8 checkpoint (LobeHub ComfyUI provider) | `flux1-dev-fp8.safetensors` | ~11 GB |
 | T5 text encoder | `t5xxl_fp16.safetensors` | ~9.5 GB |
 | CLIP-L encoder | `clip_l.safetensors` | ~250 MB |
 | VAE | `ae.safetensors` | ~320 MB |
@@ -472,7 +473,22 @@ The instance name is arbitrary — a single unit serves all workflow presets.
 
 ### Integration with LobeHub
 
-Point LobeHub at `http://<your-server>:8082` for the image generation endpoint. The bridge exposes `POST /v1/images/generations` and `GET /v1/models` in OpenAI format.
+LobeHub can use image generation through either of two paths:
+
+1. **Native ComfyUI provider (recommended)** — LobeHub's *ComfyUI* provider talks the
+   native ComfyUI API directly. Point it at the ComfyUI server, not the bridge:
+
+   - `COMFYUI_BASE_URL=http://<your-server>:8188`
+   - Requires the FLUX.1-dev **fp8 `.safetensors` checkpoint** (GGUF files are not
+     loadable by LobeHub's resolver/`UNETLoader`) — install with
+     `./scripts/download-flux-models.sh`.
+   - LobeHub resolves models through `CheckpointLoaderSimple`; the
+     `checkpoints: unet` mapping in `extra_model_paths.yaml` makes the fp8
+     checkpoint visible to it.
+
+2. **OpenAI-compatible provider** — the bridge exposes `POST /v1/images/generations`
+   and `GET /v1/models` in OpenAI format. Point an OpenAI-compatible provider at
+   `http://<your-server>:8082/v1` instead.
 
 ## Available Presets
 

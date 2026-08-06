@@ -14,6 +14,12 @@ comfyui:
     unet
     diffusion_models
   unet: unet
+  # The LobeHub ComfyUI provider resolves models via ComfyUI's
+  # CheckpointLoaderSimple (GET /object_info/CheckpointLoaderSimple), and its
+  # FLUX workflows load the UNet through UNETLoader. Both read this folder, so a
+  # plain .safetensors checkpoint (flux1-dev-fp8.safetensors, see
+  # scripts/download-flux-models.sh) placed here is usable by LobeHub directly.
+  checkpoints: unet
   # T5 / CLIP encoders (DualCLIPLoader)
   text_encoders: |
     clip
