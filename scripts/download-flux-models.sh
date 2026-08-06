@@ -27,9 +27,20 @@ download() {
 echo ""
 echo "==> UNet (Diffusion Model)"
 # FLUX.1-dev Q4_K_S GGUF (non-commercial license, personal use only)
+# Used by the OpenAI-compatible bridge + MCP tool (loaded via UnetLoaderGGUF).
 download \
     "https://huggingface.co/city96/FLUX.1-dev-gguf/resolve/main/flux1-dev-Q4_K_S.gguf" \
     "$MODELS_DIR/unet/flux1-dev-Q4_K_S.gguf"
+
+# FLUX.1-dev fp8 safetensors checkpoint (non-commercial license, personal use only)
+# Required for the LobeHub ComfyUI provider: it resolves models via
+# CheckpointLoaderSimple and loads the UNet via UNETLoader, neither of which
+# accepts GGUF on this server (see extra_model_paths.yaml `checkpoints: unet`).
+# The filename matches LobeHub's flux-dev registry entry (recommendedDtype
+# fp8_e4m3fn).
+download \
+    "https://huggingface.co/Kijai/flux-fp8/resolve/main/flux1-dev-fp8.safetensors" \
+    "$MODELS_DIR/unet/flux1-dev-fp8.safetensors"
 
 echo ""
 echo "==> Text Encoders"
