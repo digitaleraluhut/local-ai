@@ -1,0 +1,19 @@
+[Unit]
+Description=q38rocm ROCmFPX server - %i (Strix Halo)
+After=default.target
+
+[Service]
+Type=exec
+ExecStart=%h/local-ai/q38-llama %i
+
+# Same stop strategy as llama-server@.service: signal the in-container
+# process by its --models-preset argument; children exit on parent EOF.
+ExecStop=-/usr/bin/pkill --signal SIGTERM -f -- "--models-preset [^ ]*/%i[.]ini"
+ExecStopPost=-/usr/bin/pkill --signal SIGKILL -f -- "--models-preset [^ ]*/%i[.]ini"
+TimeoutStopSec=20
+
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

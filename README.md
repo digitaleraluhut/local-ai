@@ -40,11 +40,21 @@ This setup uses [distrobox](https://distrobox.it/) to run containerized GPU tool
 curl -s https://raw.githubusercontent.com/89luca89/distrobox/main/install | sudo sh
 ```
 
+> **Version requirement:** distrobox **≥ 1.8.2** is required for the current
+> toolboxes (Fedora 44 base). Older releases (e.g. Ubuntu 24.04's 1.7.0) fail
+> during container init with `chpasswd: invalid password hash`. On Ubuntu
+> 24.04, upgrade by installing the newer `.deb` from the Ubuntu archive:
+> ```bash
+> curl -sLO http://archive.ubuntu.com/ubuntu/pool/universe/d/distrobox/distrobox_1.8.2.5-1_all.deb
+> sudo apt install ./distrobox_1.8.2.5-1_all.deb
+> ```
+> Verify with `distrobox --version`.
+
 ### Container Images
 
 This project uses the amazing [kyuz0/amd-strix-halo-toolboxes](https://github.com/kyuz0/amd-strix-halo-toolboxes) which provides pre-built containerized environments for different GPU backends:
 
-- **ROCm 7.2**: `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2`
+- **ROCm 7.14**: `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.14` (default)
 - **Vulkan RADV**: `docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv`
 
 These containers handle all GPU driver setup automatically.
@@ -495,6 +505,8 @@ LobeHub can use image generation through either of two paths:
 ### LLM
 - **router** — qwen3.6-35b-a3b + nomic-embed-v1.5 from one process
   (default systemd unit)
+- **qwen3.8-27b-fp4** — Qwen3.8-27B ROCmFP4_FAST (13.55 GB, MTP spec decoding;
+  requires the [q38rocm](https://github.com/julianmb/q38rocm) engine, see below)
 - **qwen3.6-35b-a3b** — Qwen3.6-35B-A3B (38.5 GB, MoE 3B active; chat + embeddings)
 - **qwen3-coder-next** — Qwen3-Coder-Next (86 GB MoE, agentic coding)
 - **qwen3-coder-30b** — Qwen3-Coder-30B (34 GB, OpenCode-compatible)
@@ -510,6 +522,33 @@ LobeHub can use image generation through either of two paths:
 - **flux-dev-fast** — 1024×1024, 20 steps default (use `steps=8` for fast preview)
 - **flux-dev-3-2** — 1344×896 landscape, 20 steps
 - **flux-dev-2-3** — 896×1344 portrait, 20 steps
+
+## Qwen3.8-27B ROCmFP4 (q38rocm)
+
+The `qwen3.8-27b-fp4` preset runs the community-optimized
+[q38rocm](https://github.com/julianmb/q38rocm) engine — a llama.cpp fork with
+ROCmFP4 block-quant kernels, TurboQuant KV cache and strict-Qwen MTP
+speculative decoding (~30–36 tok/s vs ~12 tok/s stock on Strix Halo).
+
+One-time setup:
+
+```bash
+# 1. Engine (52 MB, prebuilt binaries; run inside the rocm distrobox)
+./scripts/download-q38rocm-engine.sh
+
+# 2. Weights (13.55 GiB)
+./scripts/download-qwen38-model.sh
+```
+
+Launch (uses the same `rocm` distrobox; `q38-llama` just points the launcher
+at the q38rocm binary and exports its runtime env):
+
+```bash
+./q38-llama qwen3.8-27b-fp4          # port 8011
+
+# as a service
+systemctl --user enable --now llama-q38@qwen3.8-27b-fp4
+```
 
 ## Embeddings
 
@@ -568,6 +607,9 @@ systemctl --user status llama-server@router
 
 The instance name after `@` matches the preset basename (without `.ini`).
 
+For the q38rocm engine, use the `llama-q38@` template instead (identical
+otherwise): `systemctl --user enable --now llama-q38@qwen3.8-27b-fp4`.
+
 ## Additional Arguments
 
 Pass extra arguments directly to llama-server:
@@ -584,6 +626,10 @@ The following are automatically set:
 ### Container not found
 
 The first run will automatically create the container with the correct image. Subsequent runs will use the existing container.
+
+### `chpasswd: invalid password hash` during container creation
+
+Your distrobox is too old for the toolbox image (Fedora 44 base needs distrobox ≥ 1.8.2). See the version note under [Prerequisites](#ubuntu--distrobox).
 
 ### Model file not found
 
@@ -614,6 +660,7 @@ llama.cpp reports any model under `~/.cache/llama.cpp` in `/v1/models`. The laun
 - [ComfyUI](https://github.com/comfyanonymous/ComfyUI) - Node-based image generation
 - [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) - GGUF quantization for ComfyUI
 - [kyuz0/amd-strix-halo-toolboxes](https://github.com/kyuz0/amd-strix-halo-toolboxes) - Containerized GPU toolchains
+- [julianmb/q38rocm](https://github.com/julianmb/q38rocm) - ROCmFP4 engine fork for Qwen3.8-27B on Strix Halo
 - [AMD PyTorch+ROCm Docker](https://hub.docker.com/r/rocm/pytorch) - Official GPU-accelerated PyTorch images
 - [distrobox](https://distrobox.it/) - Container wrapper for easy integration
 - [OpenCode](https://opencode.ai/) - AI-powered coding assistant

@@ -47,11 +47,28 @@ if [[ -d /opt/rocm ]]; then
 fi
 
 LLAMA_CMD=(
-    llama-server
+    "${LLAMA_SERVER_BIN:-llama-server}"
     --models-preset "$PRESET_FILE_RESOLVED"
     --no-models-autoload
     "$@"
 )
+
+# Engine override support — e.g. the q38rocm ROCmFPX fork:
+#   export LLAMA_SERVER_BIN=$HOME/opt/q38rocm/engine/bin/llama-server
+# Foreign prebuilt binaries get their bin dir on PATH/LD_LIBRARY_PATH plus
+# the runtime env from upstream's setup_env.sh (stock builds are native
+# gfx1151 and must not see HSA_OVERRIDE_GFX_VERSION).
+if [[ "${LLAMA_SERVER_BIN:-}" != "llama-server" ]]; then
+    BIN_DIR="$(cd "$(dirname "${LLAMA_SERVER_BIN}")" && pwd)"
+    export PATH="${BIN_DIR}:${PATH}"
+    export LD_LIBRARY_PATH="${BIN_DIR}:${LD_LIBRARY_PATH:-}"
+    export HSA_OVERRIDE_GFX_VERSION=11.5.1
+    export GGML_HIP_ENABLE_UNIFIED_MEMORY=1
+    export HIP_VISIBLE_DEVICES=0
+    export ROCM_FLUSH_ACCEPT=1
+    export AMD_VULKAN_ICD=RADV
+    export RADV_PERFTEST="gpl,sam,nggc"
+fi
 
 echo "Starting llama.cpp router with preset: $PRESET_NAME"
 echo "Preset file: $PRESET_FILE (MODELS_DIR=$MODELS_DIR)"

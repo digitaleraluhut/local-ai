@@ -10,7 +10,7 @@ set -e
 
 # Backend configuration
 declare -A BACKENDS=(
-    [rocm]="llama-rocm-7.2|docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2"
+    [rocm]="llama-rocm-7.14|docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.14"
     [vulkan]="vulkan-radv|docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv"
 )
 
@@ -74,12 +74,15 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
     exit 1
 fi
 
-# Check if container exists, if not create it
-if ! distrobox list | grep -q "^.*| $CONTAINER_NAME |"; then
+# Check if container exists, if not create it.
+# Field-based match: distrobox pads table columns dynamically, so grepping
+# for "| $NAME |" breaks across versions/container sets.
+if ! distrobox list 2>/dev/null | sed 1d | cut -d'|' -f2 | tr -d ' ' | grep -Fxq "$CONTAINER_NAME"; then
     echo "Container $CONTAINER_NAME not found. Creating with $IMAGE..."
     distrobox create -n "$CONTAINER_NAME" \
         --image "$IMAGE" \
-        --additional-flags "--device /dev/kfd --device /dev/dri --group-add video --group-add render --security-opt seccomp=unconfined"
+        --additional-flags "--device /dev/kfd --device /dev/dri --group-add video --group-add render --security-opt seccomp=unconfined" \
+        || echo "Container $CONTAINER_NAME already exists, continuing setup."
     
     # Setup wrapper script and configs
     distrobox enter "$CONTAINER_NAME" -- bash -c 'mkdir -p ~/.local/bin ~/.config/llama-cpp'
@@ -101,5 +104,13 @@ if [[ ! " $@ " =~ " --host " ]]; then
     set -- "$@" "--host" "0.0.0.0"
 fi
 
-# Launch server (use full path since non-login shells may not have ~/.local/bin in PATH)
-distrobox enter "$CONTAINER_NAME" -- "\$HOME/.local/bin/$WRAPPER_SCRIPT" "$MODEL_CONFIG" "$@"
+# Optional CLI port override (the q38rocm fork ignores `port` in preset INIs,
+# so its wrapper sets LLAMA_SERVER_PORT and we append it here)
+if [[ -n "${LLAMA_SERVER_PORT:-}" ]] && [[ ! " $@ " =~ " --port " ]]; then
+    set -- "$@" "--port" "${LLAMA_SERVER_PORT}"
+fi
+
+# Launch server (use full path since non-login shells may not have ~/.local/bin
+# in PATH; expand on the host — distrobox ≥1.8 no longer expands \$HOME and
+# container $HOME is identical to host $HOME anyway)
+distrobox enter "$CONTAINER_NAME" -- "$HOME/.local/bin/$WRAPPER_SCRIPT" "$MODEL_CONFIG" "$@"
