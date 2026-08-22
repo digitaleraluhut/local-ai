@@ -110,6 +110,22 @@ if [[ -n "${LLAMA_SERVER_PORT:-}" ]] && [[ ! " $@ " =~ " --port " ]]; then
     set -- "$@" "--port" "${LLAMA_SERVER_PORT}"
 fi
 
+# Container init can race service start at boot: the first distrobox exec
+# after the container comes up may hang indefinitely. Probe until entry
+# responds; on persistent failure exit non-zero so Restart= kicks in.
+probe_ok=0
+for _ in $(seq 1 36); do
+    if timeout 15 distrobox enter "$CONTAINER_NAME" -- true 2>/dev/null; then
+        probe_ok=1
+        break
+    fi
+    sleep 5
+done
+if [[ "$probe_ok" -ne 1 ]]; then
+    echo "Error: container $CONTAINER_NAME is not accepting execs; aborting (will retry)." >&2
+    exit 1
+fi
+
 # Launch server (use full path since non-login shells may not have ~/.local/bin
 # in PATH; expand on the host — distrobox ≥1.8 no longer expands \$HOME and
 # container $HOME is identical to host $HOME anyway)
