@@ -503,10 +503,13 @@ LobeHub can use image generation through either of two paths:
 ## Available Presets
 
 ### LLM
-- **router** — qwen3.6-35b-a3b + nomic-embed-v1.5 from one process
-  (default systemd unit)
-- **qwen3.8-27b-fp4** — Qwen3.8-27B ROCmFP4_FAST (13.55 GB, MTP spec decoding;
-  requires the [q38rocm](https://github.com/julianmb/q38rocm) engine, see below)
+- **router** — qwen3.6-35b-a3b (startup) + qwen3.8-27b (on-demand) + bge-m3
+  embeddings from one process (default systemd unit, port 8080)
+- **qwen3.8-27b-stock** — standalone Qwen3.8-27B UD-Q4_K_XL preset
+  (unsloth dynamic quant + ggml-org MTP head; see below)
+- **qwen3.8-27b-fp4** — Qwen3.8-27B ROCmFP4_FAST via the
+  [q38rocm](https://github.com/julianmb/q38rocm) fork engine
+  (archived alternative; requires `LLAMA_SERVER_BIN` override, see below)
 - **qwen3.6-35b-a3b** — Qwen3.6-35B-A3B (38.5 GB, MoE 3B active; chat + embeddings)
 - **qwen3-coder-next** — Qwen3-Coder-Next (86 GB MoE, agentic coding)
 - **qwen3-coder-30b** — Qwen3-Coder-30B (34 GB, OpenCode-compatible)
@@ -523,31 +526,53 @@ LobeHub can use image generation through either of two paths:
 - **flux-dev-3-2** — 1344×896 landscape, 20 steps
 - **flux-dev-2-3** — 896×1344 portrait, 20 steps
 
-## Qwen3.8-27B ROCmFP4 (q38rocm)
+## Qwen3.8-27B
 
-The `qwen3.8-27b-fp4` preset runs the community-optimized
-[q38rocm](https://github.com/julianmb/q38rocm) engine — a llama.cpp fork with
-ROCmFP4 block-quant kernels, TurboQuant KV cache and strict-Qwen MTP
-speculative decoding (~30–36 tok/s vs ~12 tok/s stock on Strix Halo).
+Two ways to run Qwen3.8-27B (dense 27B, hybrid DeltaNet attention):
 
-One-time setup:
+### Default: stock llama.cpp via the router
+
+`configs/qwen3.8-27b-stock.ini` runs unsloth's **UD-Q4_K_XL** (17.6 GB
+dynamic quant) with ggml-org's MTP head as draft on the stock binary.
+Measured on a 128 GB Strix Halo: ~17 tok/s decode, ~300 tok/s prefill,
+prompt caching keeps tool-round-trips warm (repeat-request TTFT 13 s →
+0.4 s), byte-identical output across cold and cache-restored runs.
+
+The router preset (`router.ini`) hosts it as an **on-demand** model:
+`load-on-startup = false` means RAM is only occupied while the model is
+actually used; the first request pays a ~25 s load. Requires upstream
+autoload (default; opt out per-instance with `LLAMA_NO_AUTOLOAD=1`).
 
 ```bash
-# 1. Engine (52 MB, prebuilt binaries; run inside the rocm distrobox)
-./scripts/download-q38rocm-engine.sh
-
-# 2. Weights (13.55 GiB)
-./scripts/download-qwen38-model.sh
+# Weights (~21 GiB total)
+curl -L -o ~/models/qwen3.8-27b/stock/Qwen3.8-27B-UD-Q4_K_XL.gguf \
+  https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q4_K_XL.gguf
+curl -L -o ~/models/qwen3.8-27b/stock/mtp-Qwen3.8-27B-Q8_0.gguf \
+  https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/main/mtp-Qwen3.8-27B-Q8_0.gguf
 ```
 
-Launch (uses the same `rocm` distrobox; `q38-llama` just points the launcher
-at the q38rocm binary and exports its runtime env):
+Note: `draft-mtp` is kept enabled but measures neutral on the ROCm
+backend (16.9 vs 17.2 tok/s); drop it to save the 3.2 GB draft.
+
+### Alternative: q38rocm ROCmFPX fork (archived)
+
+The `qwen3.8-27b-fp4` preset runs the community-optimized
+[q38rocm](https://github.com/julianmb/q38rocm) engine — ROCmFP4 block
+quants, TurboQuant KV, strict-Qwen MTP (27–38 tok/s decode). Kept for
+reference; two hard caveats measured on this machine:
+
+1. Speculation and prompt caching are mutually exclusive in the fork —
+   every speculation boundary forces a full cold re-prefill
+   (`spec-boundary-mismatch`), which is fatal for agentic tool loops.
+2. Non-strict MTP diverged run-to-run at temperature 0 with fixed seed.
 
 ```bash
-./q38-llama qwen3.8-27b-fp4          # port 8011
+# Engine (52 MB) + weights (13.55 GiB)
+./scripts/download-q38rocm-engine.sh
+./scripts/download-qwen38-model.sh
 
-# as a service
-systemctl --user enable --now llama-q38@qwen3.8-27b-fp4
+./q38-llama qwen3.8-27b-fp4          # port 8011
+systemctl --user enable --now llama-q38@qwen3.8-27b-fp4   # if ever needed
 ```
 
 ## Embeddings
@@ -607,8 +632,8 @@ systemctl --user status llama-server@router
 
 The instance name after `@` matches the preset basename (without `.ini`).
 
-For the q38rocm engine, use the `llama-q38@` template instead (identical
-otherwise): `systemctl --user enable --now llama-q38@qwen3.8-27b-fp4`.
+For the q38rocm fork engine, use the `llama-q38@` template instead
+(identical otherwise): `systemctl --user enable --now llama-q38@qwen3.8-27b-fp4`.
 
 ## Additional Arguments
 

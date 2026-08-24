@@ -49,9 +49,15 @@ fi
 LLAMA_CMD=(
     "${LLAMA_SERVER_BIN:-llama-server}"
     --models-preset "$PRESET_FILE_RESOLVED"
-    --no-models-autoload
     "$@"
 )
+
+# Autoload is upstream-default (on-demand loading of unloaded presets on
+# first request, LRU eviction at models-max). Set LLAMA_NO_AUTOLOAD=1 to
+# keep the old strict startup-only behavior.
+if [[ "${LLAMA_NO_AUTOLOAD:-0}" == "1" ]]; then
+    LLAMA_CMD+=(--no-models-autoload)
+fi
 
 # Engine override support — e.g. the q38rocm ROCmFPX fork:
 #   export LLAMA_SERVER_BIN=$HOME/opt/q38rocm/engine/bin/llama-server
