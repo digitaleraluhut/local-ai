@@ -5,7 +5,8 @@
 # The binaries are dynamically linked against the ROCm userspace that is
 # already present inside the kyuz0 rocm toolboxes — no host ROCm install
 # needed. They run inside the container via LLAMA_SERVER_BIN override
-# (see configs/qwen3.8-27b-fp4.ini + q38-llama wrapper).
+# (default serving: systemd/llama-server@fork-router.service.d/override.conf
+# + configs/fork-router.ini; single-lane via q38-llama wrapper).
 #
 # Usage: ./scripts/download-q38rocm-engine.sh [target-dir]
 # Target: ~/opt/q38rocm (default)
@@ -13,9 +14,9 @@
 set -e
 
 TARGET_DIR="${1:-${HOME}/opt/q38rocm}"
-ENGINE_URL="https://github.com/julianmb/q38rocm/releases/download/v1.1.0/strix-halo-rocmfpx-engine-v1.0.0-linux-x86_64.tar.gz"
+ENGINE_URL="https://github.com/julianmb/q38rocm/releases/download/v1.5.2/strix-halo-rocmfpx-engine-v1.5.2-linux-x86_64.tar.gz"
 SUMS_URL="https://raw.githubusercontent.com/julianmb/q38rocm/main/SHA256SUMS"
-ARCHIVE="strix-halo-rocmfpx-engine-v1.0.0-linux-x86_64.tar.gz"
+ARCHIVE="strix-halo-rocmfpx-engine-v1.5.2-linux-x86_64.tar.gz"
 
 if [[ -x "$TARGET_DIR/engine/bin/llama-server" ]]; then
     echo "Engine already exists at $TARGET_DIR/engine/bin/llama-server"

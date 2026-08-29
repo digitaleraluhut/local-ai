@@ -1,7 +1,7 @@
 #!/bin/bash
 # Wrapper for llama-server using the q38rocm ROCmFPX engine inside the
 # ROCm distrobox. Requires scripts/download-q38rocm-engine.sh to have run.
-export LLAMA_SERVER_BIN="${Q38ROCM_HOME:-$HOME/opt/q38rocm}/engine/bin/llama-server"
+export LLAMA_SERVER_BIN="${Q38ROCM_HOME:-$HOME/opt/q38rocm}/engine-v1.5.2/strix-halo-rocmfpx-engine/bin/llama-server"
 # The fork ignores `port` in preset INIs — pass it on the command line.
 export LLAMA_SERVER_PORT="${LLAMA_SERVER_PORT:-8011}"
 exec "$(dirname "$0")/llama-server" rocm "$@"

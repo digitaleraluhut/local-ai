@@ -28,7 +28,7 @@ set -euo pipefail
 
 HOST=localhost
 PORT=8080
-MODEL=qwen3.6-35b-a3b
+MODEL=qwen3.8-27b-fp4-mtp
 SIZES="4000 16000 32000"
 RUNS=3
 PREDICT=128
@@ -56,7 +56,7 @@ if [[ $JOURNAL -eq 1 ]]; then
   echo "Real prompt-eval traffic since: $SINCE"
   echo "(small prompt_n = cache working; large prompt_n every turn = cache busted)"
   echo
-  journalctl --user -u llama-server@router --since "$SINCE" --no-pager 2>/dev/null \
+  journalctl --user -u llama-server@fork-router --since "$SINCE" --no-pager 2>/dev/null \
     | grep -E 'prompt eval time' \
     | LC_ALL=C awk '
         # llama.cpp line tail: prompt eval time = <ms> ms / <n> tokens ( ... )

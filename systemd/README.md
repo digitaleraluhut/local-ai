@@ -6,8 +6,10 @@ Parameterized service templates for auto-starting models on boot.
 
 ```bash
 cp llama-server@.service ~/.config/systemd/user/
+cp -r llama-server@fork-router.service.d ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now llama-server@qwen3.6-35b-a3b
+# Default serving: q38rocm fork (fp4 MTP + bge-m3) on port 8080.
+systemctl --user enable --now llama-server@fork-router
 ```
 
 ### Usage
@@ -26,9 +28,18 @@ Single instance — the bridge serves all workflow presets from one process.
 The `model` field in each API request selects the workflow at runtime.
 
 ```bash
-cp comfyui-server@.service ~/.config/systemd/user/
+cp llama-server@.service ~/.config/systemd/user/
+cp -r llama-server@fork-router.service.d ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now comfyui-server@comfyui
+systemctl --user enable --now llama-server@fork-router   # active default: fork (fp4 + bge-m3, :8080)
+```
+
+Only one instance may own a port at a time. Swap the active preset:
+
+```bash
+systemctl --user disable --now llama-server@fork-router
+systemctl --user enable --now llama-server@qwen3.6-35b-a3b   # stock MoE lane
+# every preset in configs/ is launchable this way (incl. qwen3.8-27b-stock, router, ...)
 ```
 
 The instance name is arbitrary (used only to distinguish units); it is not a preset name.
