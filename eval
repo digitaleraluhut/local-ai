@@ -1,0 +1,167 @@
+#!/bin/bash
+# eval — run EvalPlus (HumanEval+/MBPP+) against the local llama-server,
+# in a background-friendly way. Depends on the python venv at ./eval-venv
+# (created on first run) and a running server (default localhost:8080,
+# model qwen3.8-27b-fp4-mtp).
+#
+# EvalPlus runs an execution-graded pass@1, both on the original tests
+# ("base") and on its strengthened extra tests ("+"). These are the
+# contamination-aware-ish numbers people actually cite for coding models.
+# Reference points:
+#   HumanEval+ / MBPP+  — strong frontier ~85-95%+ / ~80-90%
+#   (our 27B FP4 local model is a strict, deterministic subset of the
+#    self-reported BF16 numbers, e.g. LiveCodeBench v6 90.3% @ xhigh)
+#
+# Usage:
+#   ./eval                                     # HumanEval+ (foreground)
+#   ./eval --bg                                # run in background, log + summary
+#   ./eval --dataset mbpp                      # MBPP+ instead
+#   ./eval --bg --dataset humaneval --dataset mbpp
+#   ./eval --port 8080 --model qwen3.8-27b-fp4-mtp
+#   ./eval --n_samples 5 --temperature 0.6     # sampling pass (non-deterministic)
+#   ./eval --parallel 24                       # grading workers (<= #cores)
+#   ./eval --root /tmp/eval-r2                 # explicit run dir (default eval-runs/run-<ts>)
+#   ./eval --status [DIR]                      # print summary of a previous run
+#
+# Real numbers: every run gets its own dir eval-runs/run-<timestamp>/ so a
+# rerun never clobbers previous samples (codegen resume only appends).
+# Ground-truth oracle outputs are computed once and cached under eval-runs/.
+#
+# Background: `--bg` writes eval-runs/run-<ts>/eval.log and a summary to
+# eval-runs/run-<ts>/summary.txt; poll with `./eval --status eval-runs/run-<ts>/`.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV="$SCRIPT_DIR/eval-venv"
+ROOT=""
+DATASETS=()
+PORT=8080
+HOST=localhost
+MODEL=qwen3.8-27b-fp4-mtp
+N_SAMPLES=1
+TEMPERATURE=0.0
+PARALLEL=24
+BG=0
+STATUS=""
+
+if [[ -f "$SCRIPT_DIR/.eval.env" ]]; then
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/.eval.env"
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --bg)             BG=1;            shift;;
+    --host)           HOST=$2;         shift 2;;
+    --port)           PORT=$2;         shift 2;;
+    --model)          MODEL=$2;        shift 2;;
+    --dataset)        DATASETS+=("$2"); shift 2;;
+    --n_samples)      N_SAMPLES=$2;    shift 2;;
+    --temperature)    TEMPERATURE=$2;  shift 2;;
+    --parallel|-p)    PARALLEL=$2;     shift 2;;
+    --root)           ROOT=$2;         shift 2;;
+    --status)         STATUS=$2;       shift 2;;
+    -h|--help)        grep '^#' "$0" | grep -v '^#!/' | sed 's/^#\s\?//'; exit 0;;
+    *) echo "unknown arg: $1" >&2; exit 1;;
+  esac
+done
+
+[[ ${#DATASETS[@]} -eq 0 ]] && DATASETS=(humaneval)
+
+run_summary() {
+  local dir="$1"
+  [[ -d "$dir" ]] || { echo "no such run dir: $dir" >&2; return 1; }
+  find "$dir" -name '*_eval_results.json' -print0 | while IFS= read -r -d '' f; do
+    python3 - "$f" <<'PY'
+import json, os, sys
+p = sys.argv[1]
+r = json.load(open(p))
+for part in os.path.dirname(p).split("/"):
+    if part in ("humaneval", "mbpp"):
+        dset = part
+base = plus = 0
+for arr in r.get("eval", {}).values():
+    if arr and arr[-1]["base_status"] == "pass":
+        base += 1
+    if arr and arr[-1]["base_status"] == "pass" and arr[-1]["plus_status"] == "pass":
+        plus += 1
+n = len(r.get("eval", {}))
+print(f"{dset:10s} base pass@1 {base/n:6.2%}   + pass@1 {plus/n:6.2%}   ({n} tasks, {r.get('date','?')})")
+PY
+  done
+}
+
+if [[ -n "$STATUS" ]]; then
+  run_summary "$STATUS"
+  exit 0
+fi
+
+if ! command -v curl >/dev/null; then
+  echo "curl required" >&2; exit 1
+fi
+
+if [[ ! -x "$VENV/bin/evalplus.evaluate" ]]; then
+  echo "==> bootstrapping eval-venv (evalplus + deps) ..."
+  python3 -m venv "$VENV"
+  "$VENV/bin/pip" install -q --upgrade pip
+  "$VENV/bin/pip" install -q evalplus
+  echo "    venv ready at $VENV"
+fi
+
+URL="http://$HOST:$PORT/v1/models"
+echo -n "==> checking server $URL ... "
+if ! curl -s --max-time 5 -o /dev/null "$URL"; then
+  echo "FAILED (is llama-server running on $HOST:$PORT?)" >&2; exit 1
+fi
+echo "ok"
+
+if [[ -z "$ROOT" ]]; then
+  ROOT="$SCRIPT_DIR/eval-runs/run-$(date +%Y%m%d-%H%M%S)"
+fi
+mkdir -p "$ROOT"
+
+run_one() {
+  local dset="$1"
+  echo "==> $dset  model=$MODEL  n=$N_SAMPLES temp=$TEMPERATURE parallel=$PARALLEL"
+  echo "    samples -> $ROOT/$dset/"
+  if [[ "$N_SAMPLES" -eq 1 && "$TEMPERATURE" == "0.0" ]]; then
+    # greedy: do_sample=False (one deterministic pass@1, temp forced 0)
+    GREEDY="--greedy"
+  else
+    GREEDY=""
+  fi
+  "$VENV/bin/evalplus.evaluate" "$dset" \
+    --model "$MODEL" \
+    --backend openai \
+    --base_url "http://$HOST:$PORT/v1" \
+    --root "$ROOT" \
+    --n_samples "$N_SAMPLES" \
+    --temperature "$TEMPERATURE" \
+    --parallel "$PARALLEL" \
+    $GREEDY
+}
+
+if [[ $BG -eq 1 ]]; then
+  LOG="$ROOT/eval.log"
+  {
+    for dset in "${DATASETS[@]}"; do
+      run_one "$dset"
+    done
+    echo
+    echo "=== SUMMARY ==="
+    run_summary "$ROOT"
+    echo "=== DONE $(date -u +%Y-%m-%dT%H:%MZ) ==="
+  } >"$LOG" 2>&1 &
+  BGPID=$!
+  echo "launched in background: pid=$BGPID  log=$LOG"
+  echo "poll: ./eval --status $ROOT"
+  echo "kill: kill $BGPID"
+else
+  for dset in "${DATASETS[@]}"; do
+    run_one "$dset"
+  done
+  echo
+  echo "=== SUMMARY ==="
+  run_summary "$ROOT"
+fi

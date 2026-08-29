@@ -13,3 +13,7 @@ models/
 .env
 *.env
 comfyui-bridge/__pycache__/
+
+# Eval harness (venv + generated samples)
+eval-venv/
+eval-runs/

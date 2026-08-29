@@ -560,6 +560,28 @@ curl -L -o ~/models/qwen3.8-27b/stock/mtp-Qwen3.8-27B-Q8_0.gguf \
 The qwen3.6-35b-a3b MoE lane is no longer active (fp4 covers it at half the
 RAM), but `configs/qwen3.6-35b-a3b.ini` stays available as a swap-in.
 
+## Benchmarking — EvalPlus (`./eval`)
+
+`./eval` runs [EvalPlus](https://github.com/evalplus/evalplus)
+(HumanEval+/MBPP+, execution-graded pass@1) against the running server —
+an OpenAI-compatible wrapper around the `evalplus.evaluate` CLI, designed
+to run in the background so the 27B decode rate (~28 tok/s, ~5 s/task)
+doesn't hold the terminal hostage. It also prints the strengthened
+"+ (extra tests)" score, which is the number that actually discriminates
+between today's models.
+
+```bash
+./eval --bg                      # HumanEval+ in background (default)
+./eval --bg --dataset mbpp       # MBPP+ instead
+./eval --status eval-runs/run-<ts>/   # poll / summarize a run
+```
+
+Every run gets its own dir `eval-runs/run-<ts>/` (samples + `_eval_results.json`
++ `eval.log`), so reruns never clobber previous ones. Ground-truth oracles are
+computed once and cached. Reference: the FP4 quant is a deterministic subset of
+the model family's self-reported numbers (e.g. LiveCodeBench v6 90.3% @ xhigh
+reasoning), so expect a real but modest gap.
+
 ## Embeddings
 
 Set `embeddings = true` and (optionally) `pooling = mean|last|cls` in
