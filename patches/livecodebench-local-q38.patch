@@ -1,0 +1,116 @@
+# LiveCodeBench local-serving patch for the q38rocm host.
+#
+# Upstream base: LiveCodeBench HEAD 28fef95
+# (livecodebench/code_generation_lite loader + lm_styles + anthropic guards).
+#
+# What it does:
+#   1. code_generation.py  - read dataset from local JSONL in $LCB_DATA_DIR
+#      (per-release file lists) instead of the broken HF load_dataset path;
+#   fallback to HF preserved.
+#   2. lm_styles.py        - register model "qwen3.8-27b-fp4-mtp" (model_repr
+#      Qwen3.8-27B, LMStyle.OpenAIChat) for the local llama-server on :8080.
+#   3. self_repair.py + test_output_prediction.py - guard the anthropic
+#      import (HUMAN_PROMPT/AI_PROMPT were removed in new anthropic).
+#
+# Apply from the top of a clean checkout of upstream commit 28fef95:
+#   git clone https://github.com/LiveCodeBench/LiveCodeBench
+#   cd LiveCodeBench && git checkout 28fef95
+#   git apply "$LOCAL_AI/patches/livecodebench-local-q38.patch"
+#
+# Data ($LCB_DATA_DIR) comes from livecodebench/code_generation_lite repo
+# root as test.jsonl..test6.jsonl; source data and eval results are NOT
+# versioned (see .gitignore: eval-runs/).
+diff --git a/lcb_runner/benchmarks/code_generation.py b/lcb_runner/benchmarks/code_generation.py
+index e2e48a7..c29aec1 100644
+--- a/lcb_runner/benchmarks/code_generation.py
++++ b/lcb_runner/benchmarks/code_generation.py
+@@ -1,3 +1,4 @@
++import os
+ import json
+ import zlib
+ import pickle
+@@ -121,9 +122,28 @@ class CodeGenerationProblem:
+         }
+ 
+ 
++_RELEASE_FILES = {
++    "release_v1": ["test.jsonl"],
++    "release_v2": ["test.jsonl", "test2.jsonl"],
++    "release_v3": ["test.jsonl", "test2.jsonl", "test3.jsonl"],
++    "release_v4": ["test.jsonl", "test2.jsonl", "test3.jsonl", "test4.jsonl"],
++    "release_v5": ["test.jsonl", "test2.jsonl", "test3.jsonl", "test4.jsonl", "test5.jsonl"],
++    "release_v6": ["test.jsonl", "test2.jsonl", "test3.jsonl", "test4.jsonl", "test5.jsonl", "test6.jsonl"],
++    "release_latest": ["test.jsonl", "test2.jsonl", "test3.jsonl", "test4.jsonl", "test5.jsonl", "test6.jsonl"],
++}
++
++
+ def load_code_generation_dataset(release_version="release_v1", start_date=None, end_date=None) -> list[CodeGenerationProblem]:
+-    dataset = load_dataset("livecodebench/code_generation_lite", split="test", version_tag=release_version, trust_remote_code=True)
+-    dataset = [CodeGenerationProblem(**p) for p in dataset]  # type: ignore
++    data_dir = os.environ.get("LCB_DATA_DIR")
++    if data_dir:
++        rows = []
++        for fname in _RELEASE_FILES.get(release_version, _RELEASE_FILES["release_latest"]):
++            with open(os.path.join(data_dir, fname), "r") as f:
++                rows.extend(json.loads(line) for line in f)
++        dataset = [CodeGenerationProblem(**p) for p in rows]
++    else:
++        dataset = load_dataset("livecodebench/code_generation_lite", split="test", version_tag=release_version, trust_remote_code=True)
++        dataset = [CodeGenerationProblem(**p) for p in dataset]  # type: ignore
+     if start_date is not None:
+         p_start_date = datetime.strptime(start_date, "%Y-%m-%d")
+         dataset = [e for e in dataset if p_start_date <= e.contest_date]
+diff --git a/lcb_runner/lm_styles.py b/lcb_runner/lm_styles.py
+index d10b211..387270e 100644
+--- a/lcb_runner/lm_styles.py
++++ b/lcb_runner/lm_styles.py
+@@ -869,3 +869,17 @@ LanguageModelStore: dict[str, LanguageModel] = {
+ 
+ if __name__ == "__main__":
+     print(list(LanguageModelStore.keys()))
++
++# --- local additions (not upstream) ---
++LanguageModelList.append(
++    LanguageModel(
++        "qwen3.8-27b-fp4-mtp",
++        "Qwen3.8-27B",
++        LMStyle.OpenAIChat,
++        datetime(2026, 8, 1),
++        link="local llama-server :8080",
++    )
++)
++LanguageModelStore: dict[str, LanguageModel] = {
++    lm.model_name: lm for lm in LanguageModelList
++}
+diff --git a/lcb_runner/prompts/self_repair.py b/lcb_runner/prompts/self_repair.py
+index 21ded04..909f12d 100644
+--- a/lcb_runner/prompts/self_repair.py
++++ b/lcb_runner/prompts/self_repair.py
+@@ -1,6 +1,10 @@
+ import json
+ 
+-from anthropic import HUMAN_PROMPT, AI_PROMPT
++try:
++    from anthropic import HUMAN_PROMPT, AI_PROMPT
++except ImportError:
++    HUMAN_PROMPT = None
++    AI_PROMPT = None
+ 
+ from lcb_runner.lm_styles import LMStyle
+ 
+diff --git a/lcb_runner/prompts/test_output_prediction.py b/lcb_runner/prompts/test_output_prediction.py
+index 90d8719..1fa473e 100644
+--- a/lcb_runner/prompts/test_output_prediction.py
++++ b/lcb_runner/prompts/test_output_prediction.py
+@@ -1,6 +1,10 @@
+ import json
+ 
+-from anthropic import HUMAN_PROMPT, AI_PROMPT
++try:
++    from anthropic import HUMAN_PROMPT, AI_PROMPT
++except ImportError:
++    HUMAN_PROMPT = None
++    AI_PROMPT = None
+ 
+ from lcb_runner.lm_styles import LMStyle
+ from lcb_runner.benchmarks import TestOutputPredictionProblem
