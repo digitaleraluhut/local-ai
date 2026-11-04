@@ -84,4 +84,4 @@ distrobox enter "$CONTAINER_NAME" -- chmod +x ~/.local/bin/comfyui-bridge.py 2>/
 # Pass HOST_HOSTNAME so the bridge can build correct image URLs using the host
 # machine name rather than the distrobox container name.
 HOST_HOSTNAME="$(hostname)" distrobox enter "$CONTAINER_NAME" -- \
-    env HOST_HOSTNAME="$(hostname)" "\$HOME/.local/bin/comfyui-server-container" "$@"
+    env HOST_HOSTNAME="$(hostname)" "$HOME/.local/bin/comfyui-server-container" "$@"
