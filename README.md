@@ -704,3 +704,13 @@ llama.cpp reports any model under `~/.cache/llama.cpp` in `/v1/models`. The laun
 ## License
 
 This project is a configuration and tooling layer. Use in accordance with the licenses of the underlying projects (llama.cpp, amd-strix-halo-toolboxes, etc.).
+
+## Secret scanning
+
+Commits are scanned for secrets with [gitleaks](https://github.com/gitleaks/gitleaks)
+(config: `.github/gitleaks.toml`): locally by a pre-commit hook, and in CI by
+`.github/workflows/secret-scan.yml`. Enable the hook once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
