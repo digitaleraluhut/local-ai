@@ -12,6 +12,10 @@ set -e
 declare -A BACKENDS=(
     [rocm]="llama-rocm-7.14|docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.14"
     [vulkan]="vulkan-radv|docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv"
+    # Second distrobox: dedicated ROCm container for the q38rocm fork engine
+    # (qwen3.8-27b dual MTP/cache service on :8090). Image cached locally, so
+    # container creation is fast; same toolchain set as the stock rocm lane.
+    [rocm-q38]="llama-q38|docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.14"
 )
 
 # Parse backend

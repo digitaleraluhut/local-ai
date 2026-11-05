@@ -17,6 +17,8 @@
 #   ./eval --bg                                # run in background, log + summary
 #   ./eval --dataset mbpp                      # MBPP+ instead
 #   ./eval --bg --dataset humaneval --dataset mbpp
+#   ./eval --bench livecodebench [--release_version release_latest]
+#   ./eval --bench livecodebench --start_date 2024-01-01 --end_date 2024-06-01
 #   ./eval --port 8080 --model qwen3.8-27b-fp4-mtp
 #   ./eval --n_samples 5 --temperature 0.6     # sampling pass (non-deterministic)
 #   ./eval --parallel 24                       # grading workers (<= #cores)
@@ -44,6 +46,11 @@ TEMPERATURE=0.0
 PARALLEL=24
 BG=0
 STATUS=""
+BENCH="evalplus"           # evalplus | livecodebench
+RELEASE_VERSION=release_latest
+START_DATE=""
+END_DATE=""
+DEBUG=0
 
 if [[ -f "$SCRIPT_DIR/.eval.env" ]]; then
   # shellcheck disable=SC1091
@@ -62,12 +69,21 @@ while [[ $# -gt 0 ]]; do
     --parallel|-p)    PARALLEL=$2;     shift 2;;
     --root)           ROOT=$2;         shift 2;;
     --status)         STATUS=$2;       shift 2;;
+    --bench)          BENCH=$2;        shift 2;;
+    --release_version) RELEASE_VERSION=$2; shift 2;;
+    --start_date)     START_DATE=$2;   shift 2;;
+    --end_date)       END_DATE=$2;     shift 2;;
+    --debug)          DEBUG=1;         shift;;
     -h|--help)        grep '^#' "$0" | grep -v '^#!/' | sed 's/^#\s\?//'; exit 0;;
     *) echo "unknown arg: $1" >&2; exit 1;;
   esac
 done
 
 [[ ${#DATASETS[@]} -eq 0 ]] && DATASETS=(humaneval)
+case "$BENCH" in
+  evalplus|livecodebench) ;;
+  *) echo "unknown bench: $BENCH (evalplus|livecodebench)" >&2; exit 1;;
+esac
 
 run_summary() {
   local dir="$1"
@@ -92,8 +108,33 @@ PY
   done
 }
 
+LCB_SUMMARY=""
+lcb_summary() {
+  local dir="$1"
+  [[ -d "$dir" ]] || { echo "no such run dir: $dir" >&2; return 1; }
+  find "$dir" -name '*_eval.json' ! -name '*_eval_all.json' -print0 | while IFS= read -r -d '' f; do
+    python3 - "$f" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+m = r[0] if isinstance(r, list) and r else r
+p1 = m.get("pass@1", "?")
+try:
+    p1 = f"{float(p1):6.2%}"
+except Exception:
+    pass
+detail = m.get("detail", {})
+by = {k: (f"{float(v.get('pass@1')):.2%}" if v.get("pass@1") is not None else "?") for k, v in detail.items() if isinstance(v, dict)}
+print(f"livecodebench pass@1 {p1}   per-platform: {by}")
+PY
+  done
+}
+
 if [[ -n "$STATUS" ]]; then
-  run_summary "$STATUS"
+  case "$BENCH" in
+    livecodebench) lcb_summary "$STATUS";;
+    *) run_summary "$STATUS";;
+  esac
   exit 0
 fi
 
@@ -142,26 +183,68 @@ run_one() {
     $GREEDY
 }
 
+run_lcb() {
+  local dts="$START_DATE" det="$END_DATE"
+  echo "==> livecodebench  model=$MODEL  release=$RELEASE_VERSION n=$N_SAMPLES temp=$TEMPERATURE parallel=$PARALLEL"
+  [ -n "$dts" ] && echo "    date window: $dts .. $det"
+  [ -n "$dts" ] && DATERANGE=(--start_date "$dts" --end_date "$det") || DATERANGE=()
+  local debugflag=()
+  [[ $DEBUG -eq 1 ]] && debugflag=(--debug)
+  ( cd "$SCRIPT_DIR/eval-venv/LiveCodeBench" && \
+    LCB_DATA_DIR="$SCRIPT_DIR/eval-runs/lcb-data" \
+    LCB_RUN_DIR="$ROOT" \
+    LCB_SUMMARY_DIR="$ROOT" \
+    OPENAI_KEY=local \
+    OPENAI_BASE_URL="http://$HOST:$PORT/v1" \
+      "$VENV/bin/python" -m lcb_runner.runner.main \
+        --model "$MODEL" \
+        --scenario codegeneration \
+        --release_version "$RELEASE_VERSION" \
+        --n "$N_SAMPLES" \
+        --temperature "$TEMPERATURE" \
+        --multiprocess "$PARALLEL" \
+        --evaluate \
+        --num_process_evaluate "$PARALLEL" \
+        "${DATERANGE[@]}" \
+        "${debugflag[@]}" \
+  )
+  # harvest results into the run dir (runner writes output/ under its CWD)
+  cp "$SCRIPT_DIR/eval-venv/LiveCodeBench"/output/"$MODEL"*/*codegeneration*.json "$ROOT"/ 2>/dev/null \
+    && echo "    results copied to $ROOT/" || echo "    ! no output json found"
+  echo "    (eval json: $(ls "$ROOT"/*_eval.json 2>/dev/null | wc -l) file(s))"
+}
+
 if [[ $BG -eq 1 ]]; then
   LOG="$ROOT/eval.log"
   {
+    if [[ "$BENCH" == "livecodebench" ]]; then
+      run_lcb
+    else
+      for dset in "${DATASETS[@]}"; do
+        run_one "$dset"
+      done
+      echo
+      echo "=== SUMMARY ==="
+      run_summary "$ROOT"
+    fi
+    echo "=== DONE $(date -u +%Y-%m-%dT%H:%MZ) ==="
+  } >"$LOG" 2>&1 &
+  BGPID=$!
+  echo "launched in background: pid=$BGPID  log=$LOG"
+  echo "poll: ./eval --bench $BENCH --status $ROOT"
+  echo "kill: kill $BGPID"
+else
+  if [[ "$BENCH" == "livecodebench" ]]; then
+    run_lcb
+    echo
+    echo "=== SUMMARY ==="
+    lcb_summary "$ROOT"
+  else
     for dset in "${DATASETS[@]}"; do
       run_one "$dset"
     done
     echo
     echo "=== SUMMARY ==="
     run_summary "$ROOT"
-    echo "=== DONE $(date -u +%Y-%m-%dT%H:%MZ) ==="
-  } >"$LOG" 2>&1 &
-  BGPID=$!
-  echo "launched in background: pid=$BGPID  log=$LOG"
-  echo "poll: ./eval --status $ROOT"
-  echo "kill: kill $BGPID"
-else
-  for dset in "${DATASETS[@]}"; do
-    run_one "$dset"
-  done
-  echo
-  echo "=== SUMMARY ==="
-  run_summary "$ROOT"
+  fi
 fi
