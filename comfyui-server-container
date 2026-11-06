@@ -128,6 +128,9 @@ if [[ -f "$BRIDGE_SCRIPT" ]]; then
     done
 
     echo "Starting OpenAI + MCP bridge on port $BRIDGE_PORT"
+    # The bridge needs no torch. Without the venv on PYTHONPATH it uses the
+    # packages the setup script installed (fastapi, mcp, pydantic); the venv's
+    # older typing_extensions would shadow them and break the import of mcp.
     WORKFLOW_DIR="$WORKFLOW_DIR" \
     BRIDGE_BASE_URL="${BRIDGE_BASE_URL:-http://${HOST_HOSTNAME:-$(hostname -f)}:$BRIDGE_PORT}" \
     IMAGE_DIR="${IMAGE_DIR:-$HOME/images/generated}" \
@@ -135,6 +138,7 @@ if [[ -f "$BRIDGE_SCRIPT" ]]; then
     COMFYUI_HOST="127.0.0.1" \
     COMFYUI_PORT="$COMFYUI_PORT" \
     BRIDGE_PORT="$BRIDGE_PORT" \
+    PYTHONPATH="${PYTHONPATH#"${VENV_SITE}:"}" \
         $PYTHON "$BRIDGE_SCRIPT" &
     BRIDGE_PID=$!
     wait $COMFYUI_PID
