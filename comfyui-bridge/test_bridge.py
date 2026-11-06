@@ -325,10 +325,43 @@ class TestStreamPromptProgress:
         mock_ws.__aenter__ = AsyncMock(return_value=mock_ws)
         mock_ws.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("bridge.websockets.connect", return_value=mock_ws):
+        with patch("bridge.websockets.connect", return_value=mock_ws), \
+             patch("bridge._prompt_in_history", AsyncMock(return_value=False)):
             with pytest.raises(TimeoutError):
                 async for _ in stream_prompt_progress(prompt_id, timeout=1):
                     pass
+
+    @pytest.mark.asyncio
+    async def test_idle_websocket_falls_back_to_history(self):
+        """ComfyUI may not send the final 'executing' message to this socket:
+        when the socket stays silent, a finished prompt in /history counts as done."""
+        prompt_id = "history-fallback"
+        mock_ws = AsyncMock()
+        mock_ws.recv = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_ws.__aenter__ = AsyncMock(return_value=mock_ws)
+        mock_ws.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("bridge.websockets.connect", return_value=mock_ws), \
+             patch("bridge._prompt_in_history", AsyncMock(return_value=True)):
+            events = [e async for e in stream_prompt_progress(prompt_id, timeout=60)]
+
+        assert events == [{"type": "done"}]
+
+    @pytest.mark.asyncio
+    async def test_yields_done_on_execution_success(self):
+        prompt_id = "success-test"
+        messages = [
+            json.dumps({"type": "execution_success", "data": {"prompt_id": prompt_id}}),
+        ]
+        mock_ws = AsyncMock()
+        mock_ws.recv = AsyncMock(side_effect=messages)
+        mock_ws.__aenter__ = AsyncMock(return_value=mock_ws)
+        mock_ws.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("bridge.websockets.connect", return_value=mock_ws):
+            events = [e async for e in stream_prompt_progress(prompt_id, timeout=10)]
+
+        assert events == [{"type": "done"}]
 
 
 class TestWaitForPromptAsync:

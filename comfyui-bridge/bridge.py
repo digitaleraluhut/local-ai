@@ -125,6 +125,17 @@ def save_image_to_disk(image_bytes: bytes, image_dir: Path) -> tuple[str, str]:
 # Async ComfyUI progress streaming + completion via WebSocket
 # ---------------------------------------------------------------------------
 
+async def _prompt_in_history(prompt_id: str) -> bool:
+    """True if ComfyUI lists prompt_id in its history, i.e. it has finished."""
+    try:
+        resp = await asyncio.to_thread(
+            lambda: requests.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=10)
+        )
+        return resp.ok and prompt_id in resp.json()
+    except (requests.RequestException, ValueError):
+        return False
+
+
 async def stream_prompt_progress(
     prompt_id: str,
     timeout: int = 1200,
@@ -150,7 +161,13 @@ async def stream_prompt_progress(
             try:
                 raw = await asyncio.wait_for(ws.recv(), timeout=min(remaining, 30))
             except asyncio.TimeoutError:
-                raise TimeoutError(f"Prompt {prompt_id} did not complete within {timeout}s")
+                # Silent socket: newer ComfyUI versions do not always send the
+                # final "executing" message to this client. A prompt that shows
+                # up in /history has finished.
+                if await _prompt_in_history(prompt_id):
+                    yield {"type": "done"}
+                    return
+                continue
 
             # ComfyUI sends both text (JSON) and binary (image preview) frames
             if isinstance(raw, bytes):
@@ -167,6 +184,11 @@ async def stream_prompt_progress(
             if msg_type == "progress":
                 if data.get("prompt_id") == prompt_id or data.get("prompt_id") is None:
                     yield {"type": "progress", "step": data.get("value", 0), "total": data.get("max", 0)}
+
+            elif msg_type == "execution_success":
+                if data.get("prompt_id") == prompt_id:
+                    yield {"type": "done"}
+                    return
 
             elif msg_type == "executing":
                 # {"type": "executing", "data": {"node": null, "prompt_id": "<id>"}}
