@@ -3,4 +3,4 @@ uvicorn[standard]
 requests
 httpx
 websockets
-mcp[cli]
+mcp[cli]<2  # the bridge uses the v1 FastMCP API
