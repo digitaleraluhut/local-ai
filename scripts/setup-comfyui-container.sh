@@ -69,7 +69,8 @@ fi
 pip3 install --break-system-packages --upgrade gguf
 
 echo "==> Installing bridge dependencies..."
-pip3 install --break-system-packages fastapi "uvicorn[standard]" requests httpx websockets "mcp[cli]" python-multipart
+# mcp 2.x renamed FastMCP to MCPServer; the bridge uses the v1 API.
+pip3 install --break-system-packages fastapi "uvicorn[standard]" requests httpx websockets "mcp[cli]<2" python-multipart
 
 echo ""
 echo "==> Setup complete!"
