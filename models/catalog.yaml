@@ -1,0 +1,87 @@
+# Model catalog: every model file a preset in configs/ loads.
+#
+# Adding a model = one PR: add an entry here and a preset in configs/.
+# `scripts/model_catalog.py check` (CI) validates this file against the
+# presets and the memory budget; `localai-model-sync` on the host downloads
+# the files (never deletes).
+#
+# Fill sha256/size from the Hugging Face file listing (LFS oid), e.g.
+#   curl -s https://huggingface.co/api/models/<repo>/tree/main?recursive=1
+# `path` is relative to the models dir (/srv/localai/models) and is what the
+# presets reference as /path/to/models/<path>.
+
+# Unified memory shared with the cluster is ~109 GiB; presets must leave room.
+budget_gib: 100
+
+# Presets that run behind a router with a limit on simultaneously loaded
+# models (--models-max). Models with load-on-startup = true always count.
+# Presets not listed here are assumed to keep every section loaded.
+presets:
+  router.ini: {max_loaded: 2}
+  qwen3.8-dual.ini: {max_loaded: 1}
+
+models:
+  - path: qwen3.6-35b-a3b/Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf
+    repo: unsloth/Qwen3.6-35B-A3B-GGUF
+    file: Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf
+    sha256: b762215c5f507f4865df4ac3d1afa803828afa41e05ecac3fac431a67bbd88e8
+    size: 38451182560
+  - path: qwen3.8-27b/stock/Qwen3.8-27B-UD-Q4_K_XL.gguf
+    repo: unsloth/Qwen3.8-27B-GGUF
+    file: Qwen3.8-27B-UD-Q4_K_XL.gguf
+    sha256: 3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e
+    size: 17559178144
+  - path: qwen3.8-27b/stock/mtp-Qwen3.8-27B-Q8_0.gguf
+    repo: ggml-org/Qwen3.8-27B-GGUF
+    file: mtp-Qwen3.8-27B-Q8_0.gguf
+    sha256: 572ebcd0349321a71ccc6886c2611ff9d8c9aa160312ed4c90ae5bf9a055f4c6
+    size: 3164006976   # the file on the host is 288 B smaller; sync only warns
+  - path: qwen3.8-27b/Qwen3.8-27B-ROCmFP4-FAST.gguf
+    repo: julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF
+    file: Qwen3.8-27B-ROCmFP4-FAST.gguf
+    sha256: fb89c78d2be91cdb68eaaaa45b1270710bf34aa721dc1f0b9e3aa7b98d2e1da9
+    size: 14562236384
+  - path: bge-m3/bge-m3-Q8_0.gguf
+    repo: ggml-org/bge-m3-Q8_0-GGUF
+    file: bge-m3-q8_0.gguf
+    sha256: aa473d51f451a22f0fcf39ba3330c14bed38a385712b1113440f69df4047a173
+    size: 634553760
+  - path: nomic-embed-v1.5/nomic-embed-text-v1.5.Q8_0.gguf
+    repo: nomic-ai/nomic-embed-text-v1.5-GGUF
+    file: nomic-embed-text-v1.5.Q8_0.gguf
+    sha256: 3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7
+    size: 146146432
+  - path: Devstral-Small-2-24B-Instruct/Devstral-Small-2-24B-Instruct-2512-UD-Q8_K_XL.gguf
+    repo: unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF
+    file: Devstral-Small-2-24B-Instruct-2512-UD-Q8_K_XL.gguf
+    sha256: 4a50696a851571a53603b7496c444b30b6f5efa9b85c3d9d3e716db59985a06c
+    size: 28992392352
+  - path: qwen3-coder-30B-A3B/Qwen3-Coder-30B-A3B-Instruct-1M-UD-Q8_K_XL.gguf
+    repo: unsloth/Qwen3-Coder-30B-A3B-Instruct-1M-GGUF
+    file: Qwen3-Coder-30B-A3B-Instruct-1M-UD-Q8_K_XL.gguf
+    sha256: c9ccbaac7597b3c7d64a2091d52e3049e63d2e4880489b83319cbe44ccaf24ce
+    size: 35989947744
+  # Sharded: llama.cpp loads the other shards next to shard 1.
+  - path: qwen3-coder-next/Qwen3-Coder-Next-UD-Q8_K_XL-00001-of-00003.gguf
+    repo: unsloth/Qwen3-Coder-Next-GGUF
+    file: UD-Q8_K_XL/Qwen3-Coder-Next-UD-Q8_K_XL-00001-of-00003.gguf
+    sha256: 8fceb6409e609f9d4d92658fc926c7fb1dc045d229cf509ef5bbae352867ba41
+    size: 5936288
+    extra_size: 86342810816   # shards 2+3, loaded with shard 1
+  - path: qwen3-coder-next/Qwen3-Coder-Next-UD-Q8_K_XL-00002-of-00003.gguf
+    repo: unsloth/Qwen3-Coder-Next-GGUF
+    file: UD-Q8_K_XL/Qwen3-Coder-Next-UD-Q8_K_XL-00002-of-00003.gguf
+    sha256: 491753e1ed8f20a5b898ae2f47ca58bed2707b56c00a3ec7c0b681b46d953ff8
+    size: 49772613984
+    shard: true
+  - path: qwen3-coder-next/Qwen3-Coder-Next-UD-Q8_K_XL-00003-of-00003.gguf
+    repo: unsloth/Qwen3-Coder-Next-GGUF
+    file: UD-Q8_K_XL/Qwen3-Coder-Next-UD-Q8_K_XL-00003-of-00003.gguf
+    sha256: 443c72a74c7b97f2e561e9fdc7e322956bdfdee607fdadf066dbc80923ec5c7b
+    size: 36570196832
+    shard: true
+
+# Referenced by a preset but not on the host and without a verified source.
+# Not synced; the budget check ignores them. Resolve before using the preset.
+unmanaged:
+  - gpt-oss-120b/gpt-oss-120b-F16.gguf
