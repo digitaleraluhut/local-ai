@@ -714,3 +714,14 @@ Commits are scanned for secrets with [gitleaks](https://github.com/gitleaks/gitl
 ```bash
 git config core.hooksPath .githooks
 ```
+
+## Installing a new model
+
+1. Add an entry (repo, file, sha256, size) to `models/catalog.yaml` and a
+   preset in `configs/` that references `/path/to/models/<path>`.
+2. `python3 scripts/model_catalog.py check` validates the catalog against the
+   presets and the memory budget (CI runs it too).
+3. Merge, then bump `localai_ref` in homelab. The host downloads the missing
+   files (`localai-model-sync`, never deletes) and restarts the services.
+
+Try a model first in the lab slot (`llama-server@lab`, :8095).
