@@ -4,7 +4,8 @@
 *.safetensors
 *.pt
 *.pth
-models/
+models/*
+!models/catalog.yaml
 
 # Logs
 *.log
