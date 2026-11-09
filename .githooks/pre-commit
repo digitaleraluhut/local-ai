@@ -1,6 +1,26 @@
 #!/usr/bin/env sh
-# Pre-commit secrets scan of staged changes (gitleaks).
+# Pre-commit checks on the staged changes:
+#  1. model catalog vs. presets and memory budget, if catalog/presets/script are staged
+#  2. secrets scan (gitleaks)
 # Enable once per clone: git config core.hooksPath .githooks
+# CI runs the same checks; this hook only gives earlier feedback.
+
+if git diff --cached --name-only | grep -qE '^(models/catalog\.yaml|configs/.*\.ini|scripts/model_catalog\.py)$'; then
+  python3 -c 'import yaml' 2>/dev/null || {
+    echo "pre-commit: PyYAML not found (needed for the model catalog check), commit aborted." >&2
+    echo "Install: pip install pyyaml (or apt install python3-yaml)" >&2
+    exit 1
+  }
+  # Check the staged content, not the working tree.
+  staged=$(mktemp -d) || exit 1
+  trap 'rm -rf "$staged"' EXIT
+  git checkout-index --all --prefix="$staged/"
+  python3 "$staged/scripts/model_catalog.py" check || {
+    echo "pre-commit: model catalog check failed, commit aborted." >&2
+    exit 1
+  }
+fi
+
 command -v gitleaks >/dev/null 2>&1 || {
   echo "pre-commit: gitleaks not found, commit aborted." >&2
   echo "Install: https://github.com/gitleaks/gitleaks#installing" >&2
