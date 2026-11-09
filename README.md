@@ -111,7 +111,9 @@ INI keys are llama-server CLI flag names without the leading dashes
 (`--n-gpu-layers` → `ngl`); booleans are `true`/`false`. Settings under `[*]`
 apply to every section in the file (and to any cached HF models). Two
 preset-only keys: `load-on-startup = true` (eager-load on server start)
-and `stop-timeout = N` (seconds to wait for graceful unload). Most
+and `stop-timeout = N` (seconds to wait for graceful unload). `router.ini`
+does not use `load-on-startup`: on the host the router runs with
+`LLAMA_NO_AUTOLOAD=1` and the host config lists the resident models. Most
 hand-picked settings in the shipped files explain their measured effect in
 comments — open them instead of trusting this summary.
 
