@@ -36,11 +36,6 @@ models:
     file: mtp-Qwen3.8-27B-Q8_0.gguf
     sha256: 572ebcd0349321a71ccc6886c2611ff9d8c9aa160312ed4c90ae5bf9a055f4c6
     size: 3164006976   # the file on the host is 288 B smaller; sync only warns
-  - path: qwen3.8-27b/Qwen3.8-27B-ROCmFP4-FAST.gguf
-    repo: julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF
-    file: Qwen3.8-27B-ROCmFP4-FAST.gguf
-    sha256: fb89c78d2be91cdb68eaaaa45b1270710bf34aa721dc1f0b9e3aa7b98d2e1da9
-    size: 14562236384
   - path: bge-m3/bge-m3-Q8_0.gguf
     repo: ggml-org/bge-m3-Q8_0-GGUF
     file: bge-m3-q8_0.gguf

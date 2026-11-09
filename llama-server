@@ -12,10 +12,6 @@ set -e
 declare -A BACKENDS=(
     [rocm]="llama-rocm-7.14|docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.14"
     [vulkan]="vulkan-radv|docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv"
-    # Second distrobox: dedicated ROCm container for the q38rocm fork engine
-    # (qwen3.8-27b dual MTP/cache service on :8090). Image cached locally, so
-    # container creation is fast; same toolchain set as the stock rocm lane.
-    [rocm-q38]="llama-q38|docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.14"
 )
 
 # Parse backend
@@ -108,8 +104,7 @@ if [[ ! " $@ " =~ " --host " ]]; then
     set -- "$@" "--host" "0.0.0.0"
 fi
 
-# Optional CLI port override (the q38rocm fork ignores `port` in preset INIs,
-# so its wrapper sets LLAMA_SERVER_PORT and we append it here)
+# Optional CLI port override (LLAMA_SERVER_PORT, e.g. for the lab slot)
 if [[ -n "${LLAMA_SERVER_PORT:-}" ]] && [[ ! " $@ " =~ " --port " ]]; then
     set -- "$@" "--port" "${LLAMA_SERVER_PORT}"
 fi

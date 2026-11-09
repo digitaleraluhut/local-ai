@@ -100,11 +100,9 @@ rocm-llama                              # list available presets
 
 Three presets worth knowing first:
 
-- **`configs/fork-router.ini`** — the active default on this host:
-  qwen3.8-27b-fp4 (strict MTP + prompt caching, ~28 tok/s) plus bge-m3
-  embeddings, all from one q38rocm fork engine. See "Qwen3.8-27B".
-- **`configs/router.ini`** — multi-model stock preset: on-demand loading +
-  LRU eviction with bge-m3 warm. The pre-fork reference.
+- **`configs/router.ini`** — the active default on this host:
+  multi-model stock preset with LRU eviction. Which models are loaded is
+  decided by the host config (see "Qwen3.8-27B" and the homelab role).
 - **`configs/qwen3-coder-30b.ini`** — the smallest single-model preset;
   copy this shape when adding a model. The purpose of every preset is in
   "Available Presets" below.
@@ -461,15 +459,9 @@ LobeHub can use image generation through either of two paths:
 Every preset below lives in `configs/`; launch by basename (or as the
 `@`-instance of `systemctl --user start llama-server@<name>`).
 
-- **`fork-router.ini`** — *(currently active)* Qwen3.8-27B ROCmFP4 (strict
-  MTP + prompt caching, ~28 tok/s decode) + bge-m3 embeddings, both from
-  one q38rocm v1.5.2 fork process (default unit `llama-server@fork-router`,
-  port 8080)
-- **`qwen3.8-27b-fp4-mtp.ini`** — same fork engine, standalone single-model lane
-- **`qwen3.8-27b-stock.ini`** — Qwen3.8-27B UD-Q4_K_XL on the stock binary
-  (17 tok/s, draft MTP head; swap-back lane)
-- **`router.ini`** — stock llama.cpp multi-model preset (on-demand loading +
-  LRU eviction), the pre-fork reference
+- **`qwen3.8-27b-stock.ini`** — Qwen3.8-27B UD-Q4_K_XL on the stock binary,
+  optional MTP draft head
+- **`router.ini`** — stock llama.cpp multi-model preset (LRU eviction)
 - **`qwen3.6-35b-a3b.ini`** — Qwen3.6-35B-A3B (38.5 GB MoE, fast; available,
   not active since the fp4 lane covers it)
 - **`qwen3-coder-next.ini`** — Qwen3-Coder-Next (86 GB MoE, agentic coding)
@@ -477,7 +469,7 @@ Every preset below lives in `configs/`; launch by basename (or as the
 - **`devstral-small-24b.ini`** — Devstral-Small-2-24B (28 GB)
 - **`gpt-oss-120b.ini`** — GPT-OSS-120B (61 GB, F16)
 - **`nomic-embed-v1.5.ini`** — 768-dim embedding model
-- **`bge-m3.ini`** — 1024-dim multilingual embedder (also served by `fork-router`)
+- **`bge-m3.ini`** — 1024-dim multilingual embedder 
 
 ### STT
 - **whisper** — whisper.cpp `small` model, German, port 8081
@@ -490,64 +482,20 @@ Every preset below lives in `configs/`; launch by basename (or as the
 
 ## Qwen3.8-27B
 
-Dense 27B, hybrid DeltaNet attention. Every preset below stays in
-`configs/` (and `~/.config/llama-cpp/`); the **active** serving is whichever
-systemd instance is enabled — swap with `systemctl --user disable
-llama-server@<a>` + `enable llama-server@<b>`.
+Dense 27B, hybrid DeltaNet attention. The q38rocm ROCmFPX fork (ROCmFP4
+weights) was removed on 2026-11-09: stock llama.cpp now runs MTP together
+with prompt caching, and ROCmFP4 is not upstream.
 
-### Active: q38rocm ROCmFPX fork (v1.5.2)
+### Stock llama.cpp (UD-Q4_K_XL)
 
-`configs/fork-router.ini` runs the community-optimized
-[q38rocm](https://github.com/julianmb/q38rocm) v1.5.2 engine — ROCmFP4 block
-quants, TurboQuant KV, strict-Qwen MTP. Measured on a 128 GB Strix Halo:
-**~28 tok/s decode**, 4/4 draft acceptance, prompt caching coexists with MTP
-(spec-stateful checkpoint salvage: repeat-request TTFT 15.2 s → 0.4 s),
-byte-identical across cold and cache-restored runs. As of v1.5.2 the same
-preset also serves `POST /v1/embeddings` natively.
-
-The default systemd instance `llama-server@fork-router` serves both
-`qwen3.8-27b-fp4-mtp` and `bge-m3` on port 8080 — the unit's drop-in
-(`systemd/llama-server@fork-router.service.d/override.conf`) pins
-`LLAMA_SERVER_BIN` to the v1.5.2 engine and the port. Wired to this repo
-as opencode's default provider.
-
-```bash
-# Engine + weights
-./scripts/download-q38rocm-engine.sh   # v1.5.2 static engine
-./scripts/download-qwen38-model.sh     # ROCmFP4_FAST weights (13.55 GiB)
-
-systemctl --user enable --now llama-server@fork-router   # port 8080
-curl http://localhost:8080/v1/models
-```
-
-Swapping the active serving:
-
-```bash
-systemctl --user disable --now llama-server@fork-router
-systemctl --user enable --now llama-server@qwen3.6-35b-a3b   # stock MoE lane
-# or qwen3.8-27b-stock (stock Q4) / qwen3.8-27b-fp4-mtp (fork, single-model)
-```
-
-Trade-offs, verified on this machine:
-
-- Drop `c` to `131072` in `fork-router.ini` to roughly halve the KV
-  footprint (~35 GB claimed at 262144 → ~24 GB loaded).
-- Fork router mode is fine for models that load fast; it cannot host
-  multi-GB models as on-demand (the hardcoded child timeout and router
-  exit on port-bind failure were investigated, root-caused, and reported
-  upstream — both cases were environmental on this host), so keep big
-  models eager-loaded.
-- Router-mode `/v1/embeddings` works on the fork (verified 200, cosine
-  ≈0.9998 vs stock bge-m3).
-
-### Swap-back lane: stock llama.cpp
-
-`configs/qwen3.8-27b-stock.ini` + `configs/router.ini` run unsloth's
-**UD-Q4_K_XL** (17.6 GB) on the stock binary:
-~17 tok/s decode, prompt caching works (repeat-request TTFT 13 s → 0.4 s),
-byte-identical, and (unlike the fork) multi-model on-demand loading with LRU
-eviction. `draft-mtp` measures neutral on the ROCm backend (16.9 vs
-17.2 tok/s) — drop it to save the 3.2 GB draft.
+`configs/qwen3.8-27b-stock.ini` and the `qwen3.8-27b` section of
+`configs/router.ini` run unsloth's **UD-Q4_K_XL** (17.6 GB) on the stock
+binary (b10580, ROCm 7.14). Measured on this host on 2026-11-09 (one run,
+26.6K-token prefix, 12 agent turns of ~1.4K new tokens, temperature 0):
+cold prefill about 105 s, then the prompt cache holds, so a turn needs
+6-9 s to the first token. Decode is about 10 tok/s without and about
+20 tok/s with the `draft-mtp` head (3.2 GB); the cache also works with MTP
+on. Older figures in this README (17 tok/s, "MTP neutral") are superseded.
 
 ```bash
 # Weights (~21 GiB total)
@@ -624,27 +572,23 @@ A parameterized user service auto-starts a preset on boot:
 
 ```bash
 # Start a preset (single-model or router)
-systemctl --user start llama-server@fork-router
+systemctl --user start llama-server@router
 
 # Enable on boot
-systemctl --user enable llama-server@fork-router
+systemctl --user enable llama-server@router
 
 # Switch default
-systemctl --user disable llama-server@fork-router
+systemctl --user disable llama-server@router
 systemctl --user enable llama-server@qwen3-coder-next
 
 # Status
-systemctl --user status llama-server@fork-router
+systemctl --user status llama-server@router
 ```
 
 The instance name after `@` matches the preset basename (without `.ini`).
 
-Engine overrides (e.g. the q38rocm fork) are per-instance drop-ins under
-`~/.config/systemd/user/llama-server@<name>.service.d/`, setting
-`LLAMA_SERVER_BIN` (fork binary) and `LLAMA_SERVER_PORT`. A non-default
-`LLAMA_SERVER_BIN` makes the in-container launcher enable the fork env
-block (HSA_OVERRIDE=11.5.1, unified memory, RADV). The shipped fork default
-is in `systemd/llama-server@fork-router.service.d/override.conf`.
+Engine overrides are per-instance drop-ins that set `LLAMA_SERVER_BIN` and
+`LLAMA_SERVER_PORT`.
 
 ## Additional Arguments
 
@@ -696,7 +640,6 @@ llama.cpp reports any model under `~/.cache/llama.cpp` in `/v1/models`. The laun
 - [ComfyUI](https://github.com/comfyanonymous/ComfyUI) - Node-based image generation
 - [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) - GGUF quantization for ComfyUI
 - [kyuz0/amd-strix-halo-toolboxes](https://github.com/kyuz0/amd-strix-halo-toolboxes) - Containerized GPU toolchains
-- [julianmb/q38rocm](https://github.com/julianmb/q38rocm) - ROCmFP4 engine fork for Qwen3.8-27B on Strix Halo
 - [AMD PyTorch+ROCm Docker](https://hub.docker.com/r/rocm/pytorch) - Official GPU-accelerated PyTorch images
 - [distrobox](https://distrobox.it/) - Container wrapper for easy integration
 - [OpenCode](https://opencode.ai/) - AI-powered coding assistant

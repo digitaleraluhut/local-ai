@@ -59,8 +59,8 @@ if [[ "${LLAMA_NO_AUTOLOAD:-0}" == "1" ]]; then
     LLAMA_CMD+=(--no-models-autoload)
 fi
 
-# Engine override support — e.g. the q38rocm ROCmFPX fork:
-#   export LLAMA_SERVER_BIN=$HOME/opt/q38rocm/engine/bin/llama-server
+# Engine override support — run a different llama-server build:
+#   export LLAMA_SERVER_BIN=/path/to/other/bin/llama-server
 # Foreign prebuilt binaries get their bin dir on PATH/LD_LIBRARY_PATH plus
 # the runtime env from upstream's setup_env.sh (stock builds are native
 # gfx1151 and must not see HSA_OVERRIDE_GFX_VERSION).
