@@ -16,9 +16,11 @@ budget_gib: 100
 # Presets that run behind a router with a limit on simultaneously loaded
 # models (--models-max). Models with load-on-startup = true always count.
 # Presets not listed here are assumed to keep every section loaded.
+# The models the host actually keeps resident are a list in the homelab
+# repo (localai_resident_models); this check does not see it, so it bounds
+# the router by its largest `max_loaded` sections instead.
 presets:
   router.ini: {max_loaded: 2}
-  qwen3.8-dual.ini: {max_loaded: 1}
 
 models:
   - path: qwen3.6-35b-a3b/Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf
