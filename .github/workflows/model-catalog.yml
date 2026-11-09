@@ -1,0 +1,13 @@
+name: model-catalog
+on:
+  pull_request:
+    paths: [models/**, configs/**, scripts/model_catalog.py]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install pyyaml
+      - run: python3 scripts/model_catalog.py check
