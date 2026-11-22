@@ -15,7 +15,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1 — build whisper.cpp with ROCm/HIP for gfx1151 (Strix Halo)
 # ---------------------------------------------------------------------------
-FROM registry.fedoraproject.org/fedora:43 AS whisper-builder
+FROM registry.fedoraproject.org/fedora:46 AS whisper-builder
 
 # AMD ROCm 7.2 repository (same as kyuz0's toolboxes)
 RUN printf '%s\n' \
